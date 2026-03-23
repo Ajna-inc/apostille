@@ -62,7 +62,11 @@ async function fetchWithErrorHandling(url: string, options: RequestInit = {}) {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.message || 'An error occurred');
+      const err: any = new Error(data.message || 'An error occurred');
+      err.code = data.code;
+      err.data = data;
+      err.status = response.status;
+      throw err;
     }
     
     return data;
@@ -332,6 +336,9 @@ export interface CredentialDefinitionOverlay {
     secondary_background_color?: string;
     primary_attribute?: string;
     secondary_attribute?: string;
+    tertiary_attribute?: string;
+    quaternary_attribute?: string;
+    quinary_attribute?: string;
     logo?: string;
     background_image?: string;
     svg_template_url?: string;
@@ -892,12 +899,15 @@ export const pdfSigningApi = {
    * @param recipientConnectionId - Connection ID of recipient (must have KEM keys)
    * @param description - Optional description
    */
-  upload: async (file: File, recipientConnectionId: string, description?: string) => {
+  upload: async (file: File, recipientConnectionId: string, description?: string, signingFields?: any[]) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('recipientConnectionId', recipientConnectionId);
     if (description) {
       formData.append('description', description);
+    }
+    if (signingFields && signingFields.length > 0) {
+      formData.append('signingFields', JSON.stringify(signingFields));
     }
 
     const token = getAccessToken();
@@ -972,22 +982,21 @@ export const pdfSigningApi = {
   /**
    * Return a signed PDF to the owner
    */
-  returnSigned: async (vaultId: string, ownerConnectionId: string, passphrase: string) => {
+  returnSigned: async (vaultId: string, ownerConnectionId: string) => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/return/${vaultId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ownerConnectionId, passphrase }),
+      body: JSON.stringify({ ownerConnectionId }),
     });
   },
 
   /**
    * Verify a PDF signature
    */
-  verify: async (vaultId: string, passphrase: string) => {
+  verify: async (vaultId: string) => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/pdf-signing/verify/${vaultId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passphrase }),
     });
   },
 

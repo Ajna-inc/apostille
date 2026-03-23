@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { workflowApi, connectionApi } from '@/lib/api'
+import { workflowApi, connectionApi, credentialDefinitionApi } from '@/lib/api'
 import { useAuth } from '../../context/AuthContext'
 import { runtimeConfig } from '@/lib/runtimeConfig'
 import {
@@ -33,7 +33,7 @@ const WorkflowBuilder = dynamic(
 // Template 1: Application with Approval - Manual approve/reject by issuer
 const applicationApprovalTemplate = {
   template_id: 'credential-application',
-  version: '1.0.0',
+  version: '1.0.1',
   title: 'Application & Approval',
   instance_policy: { mode: 'multi_per_connection' },
   sections: [{ name: 'Application' }],
@@ -58,8 +58,8 @@ const applicationApprovalTemplate = {
         cred_def_id: 'REPLACE_WITH_CRED_DEF_ID',
         to_ref: 'holder',
         attribute_plan: {
-          Name: { source: 'context', path: 'application.Name', required: true },
-          Email: { source: 'context', path: 'application.Email', required: true },
+          Name: { source: 'context', path: 'Name', required: true },
+          Email: { source: 'context', path: 'Email', required: true },
           Status: { source: 'static', value: 'Approved' },
         },
         options: { comment: 'Approved credential' },
@@ -475,6 +475,8 @@ interface TemplateListItem {
   hash?: string
 }
 
+const WORKFLOW_CONNECTION_STORAGE_KEY = 'workflows.selectedConnectionId'
+
 interface Instance {
   id: string
   instance_id: string
@@ -515,6 +517,49 @@ function WorkflowsContent() {
   // Error/success state
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  const validateTemplateCredDefs = useCallback(async (template: any): Promise<string | null> => {
+    const profileCredDefIds: Array<{ profileId: string; credDefId: string }> = []
+
+    const credentialProfiles = template?.catalog?.credential_profiles || {}
+    Object.entries(credentialProfiles).forEach(([profileId, profile]) => {
+      const credDefId = (profile as { cred_def_id?: string })?.cred_def_id
+      if (typeof credDefId === 'string') {
+        profileCredDefIds.push({ profileId, credDefId })
+      }
+    })
+
+    const proofProfiles = template?.catalog?.proof_profiles || {}
+    Object.entries(proofProfiles).forEach(([profileId, profile]) => {
+      const credDefId = (profile as { cred_def_id?: string })?.cred_def_id
+      if (typeof credDefId === 'string') {
+        profileCredDefIds.push({ profileId, credDefId })
+      }
+    })
+
+    if (profileCredDefIds.length === 0) return null
+
+    const credDefsRes = await credentialDefinitionApi.getAll()
+    const validIds = new Set(
+      (credDefsRes?.credentialDefinitions || [])
+        .map((cd: { credentialDefinitionId?: string }) => cd.credentialDefinitionId)
+        .filter((id: string | undefined): id is string => !!id)
+    )
+
+    const invalidProfiles = profileCredDefIds.filter(({ credDefId }) => {
+      if (!credDefId.trim()) return true
+      if (credDefId.startsWith('REPLACE_WITH_')) return true
+      return !validIds.has(credDefId)
+    })
+
+    if (invalidProfiles.length === 0) return null
+
+    const invalidList = invalidProfiles
+      .map(({ profileId, credDefId }) => `${profileId}: ${credDefId || '(empty)'}`)
+      .join(', ')
+    return `Invalid credential definition ID(s) in template: ${invalidList}. ` +
+      'Select valid credential definitions before publishing or starting.'
+  }, [])
 
   // Get instance status using the hook
   const { status: instanceStatus, loading: statusLoading, refresh: refreshStatus } = useWorkflowStatus(
@@ -593,9 +638,21 @@ function WorkflowsContent() {
 
   // Initial load
   useEffect(() => {
+    if (typeof window !== 'undefined' && !selectedConnectionId) {
+      const savedId = window.localStorage.getItem(WORKFLOW_CONNECTION_STORAGE_KEY)
+      if (savedId) setSelectedConnectionId(savedId)
+    }
     loadConnections()
     loadTemplates()
   }, [loadConnections, loadTemplates])
+
+  // Persist selected connection
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (selectedConnectionId) {
+      window.localStorage.setItem(WORKFLOW_CONNECTION_STORAGE_KEY, selectedConnectionId)
+    }
+  }, [selectedConnectionId])
 
   // Load instances when connection changes
   useEffect(() => {
@@ -642,6 +699,18 @@ function WorkflowsContent() {
     setError(null)
 
     try {
+      // Validate template credential definitions before starting
+      try {
+        const validationError = await validateTemplateCredDefs(template)
+        if (validationError) {
+          setError(validationError)
+          return
+        }
+      } catch (e) {
+        setError((e as Error).message || 'Failed to validate credential definitions')
+        return
+      }
+
       // First, publish the template if it's a preset
       const isPreset = PRESET_TEMPLATES.some(p => p.template_id === template.template_id)
       if (isPreset) {
@@ -690,6 +759,15 @@ function WorkflowsContent() {
     setError(null)
 
     try {
+      console.debug('[workflow][advance] start', {
+        instanceId: activeInstanceId,
+        event,
+        input,
+        state: (instanceStatus as any)?.state,
+        template_id: (instanceStatus as any)?.template_id,
+        template_version: (instanceStatus as any)?.template_version,
+        contextKeys: Object.keys((instanceStatus as any)?.context || {}),
+      })
       // Best-effort: ensure the template exists on the counterparty
       try {
         const status = instanceStatus as any
@@ -709,8 +787,18 @@ function WorkflowsContent() {
       await workflowApi.advance({ instance_id: activeInstanceId, event, input, idempotency_key })
       await refreshStatus()
     } catch (err) {
+      const anyErr = err as any
+      console.error('[workflow][advance] failed', {
+        instanceId: activeInstanceId,
+        event,
+        input,
+        error: anyErr?.message,
+        code: anyErr?.code,
+        status: instanceStatus,
+        response: anyErr?.data,
+      })
       console.error('Advance failed:', err)
-      setError((err as Error).message || 'Advance failed')
+      setError((anyErr as Error).message || 'Advance failed')
     }
   }
 
@@ -738,6 +826,12 @@ function WorkflowsContent() {
     setError(null)
     try {
       const parsed = JSON.parse(json)
+      const validationError = await validateTemplateCredDefs(parsed)
+      if (validationError) {
+        setError(validationError)
+        return
+      }
+
       await workflowApi.publish(parsed)
       await loadTemplates()
       setSuccess(`Template "${parsed.template_id}" published successfully`)
@@ -822,11 +916,18 @@ function WorkflowsContent() {
         loading={loadingTemplates}
         onStart={(t) => handleStartWorkflow({ template_id: t.template_id, version: t.version, title: t.title })}
         onEnsure={handleEnsureTemplate}
-        onEdit={(t) => {
-          // Load template into builder
-          const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
-          if (preset) {
-            setTemplateJson(JSON.stringify(preset, null, 2))
+        onEdit={async (t) => {
+          try {
+            const resp = await workflowApi.getTemplate(t.template_id, t.version)
+            if (resp?.template) {
+              setTemplateJson(JSON.stringify(resp.template, null, 2))
+            } else {
+              const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
+              if (preset) setTemplateJson(JSON.stringify(preset, null, 2))
+            }
+          } catch {
+            const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
+            if (preset) setTemplateJson(JSON.stringify(preset, null, 2))
           }
           setShowBuilder(true)
         }}
@@ -842,55 +943,64 @@ function WorkflowsContent() {
         onOpen={setActiveInstanceId}
       />
 
-      {/* Template Builder (Collapsible) */}
+      {/* Template Builder (Modal) */}
       {showBuilder && (
-        <div className="bg-surface-100 border border-border-primary/30 rounded-xl overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border-primary/30 bg-surface-50">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="font-semibold text-text-primary">Template Builder</h2>
-                <p className="text-xs text-text-tertiary">Create and customize workflow templates</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowBuilder(false)}
-              className="text-text-tertiary hover:text-text-primary p-2 hover:bg-surface-200 rounded-lg transition-colors"
-              title="Close builder"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowBuilder(false)}
+          />
 
-          {/* Preset buttons */}
-          <div className="px-5 py-3 bg-surface-50/50 border-b border-border-primary/20 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-text-tertiary mr-2">Load preset:</span>
-            {PRESET_TEMPLATES.map((t) => (
+          {/* Modal */}
+          <div className="relative w-full max-w-7xl h-[90vh] mx-4 bg-surface-100 rounded-xl shadow-2xl border border-border-primary/30 flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border-primary/30 bg-surface-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="font-semibold text-text-primary">Template Builder</h2>
+                  <p className="text-xs text-text-tertiary">Create and customize workflow templates</p>
+                </div>
+              </div>
               <button
-                key={t.template_id}
-                onClick={() => setTemplateJson(JSON.stringify(t, null, 2))}
-                className="text-xs px-3 py-1.5 rounded-lg border border-border-primary/50 text-text-primary hover:bg-surface-200 transition-colors"
+                onClick={() => setShowBuilder(false)}
+                className="text-text-tertiary hover:text-text-primary p-2 hover:bg-surface-200 rounded-lg transition-colors"
+                title="Close builder"
               >
-                {t.title}
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
-            ))}
-          </div>
+            </div>
 
-          {/* Visual Builder */}
-          <div className="h-[600px]">
-            <WorkflowBuilder
-              initialJson={templateJson}
-              onJsonChange={(json) => setTemplateJson(json)}
-              onPublish={handlePublish}
-            />
+            {/* Preset buttons */}
+            <div className="px-5 py-3 bg-surface-50/50 border-b border-border-primary/20 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-text-tertiary mr-2">Load preset:</span>
+              {PRESET_TEMPLATES.map((t) => (
+                <button
+                  key={t.template_id}
+                  onClick={() => setTemplateJson(JSON.stringify(t, null, 2))}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-border-primary/50 text-text-primary hover:bg-surface-200 transition-colors"
+                >
+                  {t.title}
+                </button>
+              ))}
+            </div>
+
+            {/* Visual Builder */}
+            <div className="flex-1 overflow-hidden">
+              <WorkflowBuilder
+                initialJson={templateJson}
+                onJsonChange={(json) => setTemplateJson(json)}
+                onPublish={handlePublish}
+              />
+            </div>
           </div>
         </div>
       )}
