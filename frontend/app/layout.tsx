@@ -69,8 +69,8 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Apostille" />
-        <link rel="apple-touch-icon" href="/logo.png" />
-        <link rel="icon" href={process.env.NEXT_PUBLIC_BWN_LOGO || '/logo.png'} />
+        <link rel="apple-touch-icon" href="A" />
+        <link rel="icon" href={process.env.NEXT_PUBLIC_BWN_LOGO || 'A'} />
       </head>
       <body 
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased min-h-screen`}

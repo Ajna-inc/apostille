@@ -139,7 +139,7 @@ const navItems = [
 
 // Get environment variables with defaults
 const COMPANY_NAME = process.env.NEXT_PUBLIC_COMPANY_NAME || 'Apostille';
-const COMPANY_LOGO_URL = process.env.NEXT_PUBLIC_COMPANY_LOGO_URL || '/logo.png';
+const COMPANY_LOGO_URL = process.env.NEXT_PUBLIC_COMPANY_LOGO_URL || 'A';
 
 export default function ClientLayout({ children }: ClientLayoutProps) {
   const { isAuthenticated, isLoading, logout } = useAuth();
@@ -200,14 +200,14 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
 
   if (isAuthenticated) {
     return (
-      <div className="flex h-screen bg-secondary overflow-hidden">
+      <div className="flex h-screen bg-black overflow-hidden">
         {/* Mobile sidebar backdrop */}
         {sidebarOpen && (
           <div 
             className="fixed inset-0 z-40 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           >
-            <div className="fixed inset-0 bg-black/50" />
+            <div className="fixed inset-0 bg-black" />
           </div>
         )}
 
@@ -233,13 +233,14 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
                     <div className="relative group">
                       <div className="w-12 h-12 rounded-2xl overflow-hidden from-primary-500 to-primary-600 shadow-apple-lg p-0.5">
                         <div className="w-full h-full rounded-2xl overflow-hidden bg-white dark:bg-surface-100 flex items-center justify-center">
-                          <Image
+                          A
+                          {/* <Image
                             src={COMPANY_LOGO_URL}
                             alt={COMPANY_NAME}
                             width={36}
                             height={36}
                             className="object-contain transition-transform duration-300 group-hover:scale-110"
-                          />
+                          /> */}
                         </div>
                       </div>
                     </div>
