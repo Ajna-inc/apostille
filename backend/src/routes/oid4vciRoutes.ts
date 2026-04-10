@@ -6,8 +6,9 @@ import crypto from 'crypto'
 import { buildMdocNamespaces, MDL_DOCTYPE } from '../utils/mdlUtils'
 import { StateStore } from '../services/redis/stateStore'
 import { cacheStores } from '../services/redis/cacheStore'
-import { getMdocCertificateConfig, getIssuerCertificateForSigning } from '../config/mdlCertificates'
-import { KeyType, getJwkFromJson } from '@credo-ts/core'
+import { getMdocCertificateConfig, getIssuerCertificate, pemToBase64Der } from '../config/mdlCertificates'
+import { Kms, Mdoc } from '@credo-ts/core'
+import { transformPrivateKeyToPrivateJwk } from '@credo-ts/askar'
 
 const router = Router()
 
@@ -516,26 +517,32 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         // Build namespaces from credential data
         const namespaces = buildMdocNamespaces(offer.credentialData, mdocDoctype)
 
-        // Import required classes from credo-ts
-        const { Mdoc, KeyType } = await import('@credo-ts/core')
-
         // Get the IACA-signed issuer certificate from mdlCertificates config
         // This certificate is signed by the IACA root CA, which wallets trust
         const certConfig = await getMdocCertificateConfig()
-        const issuerCertificateBase64 = await getIssuerCertificateForSigning()
+        const issuerCertificate = await getIssuerCertificate()
+        const issuerCertificateBase64 = pemToBase64Der(certConfig.issuerCertificate)
         console.log('[MDL] Using IACA-signed issuer certificate')
 
         // Import the issuer private key into the wallet for signing
         // The key is imported fresh each time but uses the same key material
-        const issuerKey = await agent.context.wallet.createKey({
-          keyType: KeyType.P256,
-          privateKey: new Uint8Array(certConfig.issuerPrivateKeyBytes) as any,
+        const { privateJwk } = transformPrivateKeyToPrivateJwk({
+          type: {
+            kty: 'EC',
+            crv: 'P-256',
+          },
+          privateKey: new Uint8Array(certConfig.issuerPrivateKeyBytes),
         })
-        console.log('[MDL] Issuer key imported, fingerprint:', issuerKey.fingerprint)
+        const { keyId: issuerKeyId, publicJwk: issuerPublicJwk } = await agent.kms.importKey({
+          privateJwk,
+        })
+        const issuerPublicJwkInstance = Kms.PublicJwk.fromPublicJwk(issuerPublicJwk)
+        issuerCertificate.keyId = issuerKeyId
+        console.log('[MDL] Issuer key imported, keyId:', issuerKeyId)
 
         // Cache the certificate info in Redis for the /trusted-certificates endpoint
         await cacheStores.issuerCertificates.set(tenantId, {
-          issuerKey: { fingerprint: issuerKey.fingerprint },
+          issuerKey: { keyId: issuerKeyId, fingerprint: issuerPublicJwkInstance.legacyKeyId },
           issuerCertificate: null,
           certificateBase64: issuerCertificateBase64,
           iacaCertificateBase64: certConfig.iacaCertificate
@@ -547,7 +554,7 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         // Extract holder public key from proof JWT for device binding
         // The holder's JWK in the proof header represents their device key
         console.log('[MDL] Processing holder key for device binding...')
-        let holderKey: any
+        let holderKey: Kms.PublicJwk | undefined
         let holderJwk: any = null
 
         if (proof?.jwt) {
@@ -558,14 +565,8 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
               holderJwk = header.jwk
               console.log('[MDL] Holder JWK found in proof:', JSON.stringify(holderJwk))
 
-              // For mdoc device binding, we need a Key object
-              // Create a key from the holder's public JWK
-              const jwk = getJwkFromJson(holderJwk)
-              // Import the public key into the wallet for signing
-              holderKey = await agent.context.wallet.createKey({
-                keyType: jwk.keyType,
-              })
-              console.log('[MDL] Created holder key for binding, keyType:', jwk.keyType)
+              holderKey = Kms.PublicJwk.fromUnknown(holderJwk)
+              console.log('[MDL] Created holder key for binding')
             }
           } catch (jwkError: any) {
             console.warn('[MDL] Failed to process holder JWK from proof:', jwkError.message)
@@ -575,9 +576,13 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         // If no JWK in proof, create a new holder key (wallet-side binding)
         if (!holderKey) {
           console.log('[MDL] No holder JWK in proof, creating server-side device key...')
-          holderKey = await agent.context.wallet.createKey({
-            keyType: KeyType.P256
+          const { publicJwk } = await agent.kms.createKey({
+            type: {
+              kty: 'EC',
+              crv: 'P-256',
+            },
           })
+          holderKey = Kms.PublicJwk.fromPublicJwk(publicJwk)
         }
 
         // Sign the mdoc using Credo-TS Mdoc.sign()
@@ -590,7 +595,7 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
           docType: mdocDoctype,
           namespaces,
           holderKey,
-          issuerCertificate: issuerCertificateBase64,
+          issuerCertificate,
           validityInfo: {
             signed: now,
             validFrom: now,

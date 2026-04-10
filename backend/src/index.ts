@@ -348,7 +348,7 @@ const startServer = async () => {
     // Initialize agent system after server starts (non-blocking)
     console.log('Initializing agent system...');
     try {
-      await initializeAgentSystem();
+      await initializeAgentSystem(app);
       console.log('Agent system initialized successfully');
 
       // Initialize ESSI default agent for institutional credential issuance

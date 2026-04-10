@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { auth } from '../../middleware/authMiddleware'
 import { getAgent } from '../../services/agentService'
-import { ConnectionService } from '@credo-ts/core'
 import { WorkflowInstanceRepository, WorkflowService, WorkflowTemplateRepository } from '@ajna-inc/workflow/build'
 
 const router = Router()
@@ -23,8 +22,7 @@ router.post('/instances', auth, async (req: Request, res: Response) => {
 
     // Validate connection
     try {
-      const connectionSvc = agent.dependencyManager.resolve(ConnectionService)
-      await connectionSvc.getById(agent.context, connection_id)
+      await agent.didcomm.connections.getById(connection_id)
     } catch {
       return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
     }
@@ -107,9 +105,8 @@ router.get('/instances/:instanceId', auth, async (req: Request, res: Response) =
         const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
         const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
         if (holderDid) {
-          const connSvc = agent.dependencyManager.resolve(ConnectionService)
           const connectionId = (inst as any)?.connectionId as string | undefined
-          const conn = connectionId ? await connSvc.getById(agent.context, connectionId) : undefined
+          const conn = connectionId ? await agent.didcomm.connections.getById(connectionId) : undefined
           const myDid = (conn as any)?.did as string | undefined
           ui_profile = myDid && holderDid === myDid ? 'receiver' : 'sender'
         }
@@ -164,8 +161,7 @@ router.post('/instances/:instanceId/advance', auth, async (req: Request, res: Re
       const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
       const connectionId = (inst as any)?.connectionId as string | undefined
       if (holderDid && connectionId) {
-        const connSvc = agent.dependencyManager.resolve(ConnectionService)
-        const conn = await connSvc.getById(agent.context, connectionId)
+        const conn = await agent.didcomm.connections.getById(connectionId)
         const myDid = (conn as any)?.did as string | undefined
         const isReceiver = myDid && holderDid === myDid
         if (isReceiver && event === 'send_offer') {
@@ -292,4 +288,3 @@ router.get('/connections/:connectionId/instances', auth, async (req: Request, re
 })
 
 export default router
-
