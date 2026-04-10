@@ -48,13 +48,14 @@
   },
   "packageManager": "yarn@4.3.1",
   "resolutions": {
-    "@credo-ts/core": "0.5.17",
-    "@credo-ts/node": "0.5.17",
-    "@credo-ts/anoncreds": "0.5.17",
-    "@credo-ts/askar": "0.5.17",
-    "@credo-ts/cheqd": "0.5.17",
-    "@credo-ts/indy-vdr": "0.5.17",
-    "@credo-ts/tenants": "0.5.17",
+    "@credo-ts/core": "0.6.1",
+    "@credo-ts/didcomm": "0.6.1",
+    "@credo-ts/node": "0.6.1",
+    "@credo-ts/anoncreds": "0.6.1",
+    "@credo-ts/askar": "0.6.1",
+    "@credo-ts/cheqd": "0.6.1",
+    "@credo-ts/indy-vdr": "0.6.1",
+    "@credo-ts/tenants": "0.6.1",
     "uint8arrays": "3.1.1"
   }
 }
