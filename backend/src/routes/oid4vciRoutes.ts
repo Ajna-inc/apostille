@@ -14,6 +14,7 @@ const router = Router()
 
 // Base URL for OpenID4VC
 const apiBaseUrl = process.env.API_URL || process.env.PUBLIC_URL || 'http://localhost:3002'
+const SD_JWT_ISSUER_DID_METHOD = (process.env.SD_JWT_ISSUER_DID_METHOD || 'key').toLowerCase()
 
 // Pending offer structure for OID4VCI flow
 interface PendingOffer {
@@ -31,6 +32,42 @@ interface PendingOffer {
   doctype?: string  // For mdoc: e.g., 'org.iso.18013.5.1.mDL'
   createdAt: string  // ISO string for serialization
   expiresAt: string  // ISO string for serialization
+}
+
+async function getOrCreateSdJwtIssuerDid(agent: any): Promise<{ did: string; vmId: string }> {
+  if (SD_JWT_ISSUER_DID_METHOD !== 'key') {
+    throw new Error(`Unsupported SD_JWT_ISSUER_DID_METHOD: ${SD_JWT_ISSUER_DID_METHOD}`)
+  }
+
+  const created = await agent.dids.getCreatedDids({})
+  const existing = created.find((d: any) => typeof d.did === 'string' && d.did.startsWith('did:key:'))
+  if (existing?.did) {
+    const did: string = existing.did
+    // For did:key, the VM fragment equals the key identifier (everything after 'did:key:')
+    const keyFragment = did.replace('did:key:', '')
+    return { did, vmId: `${did}#${keyFragment}` }
+  }
+
+  const didResult = await agent.dids.create({
+    method: 'key',
+    options: {
+      createKey: {
+        type: {
+          kty: 'OKP',
+          crv: 'Ed25519',
+        },
+      },
+    },
+  })
+
+  if (didResult.didState.state !== 'finished' || !didResult.didState.did) {
+    const reason = (didResult.didState as any).reason || 'unknown error'
+    throw new Error(`Failed to create did:key for SD-JWT issuer: ${reason}`)
+  }
+
+  const did: string = didResult.didState.did
+  const keyFragment = did.replace('did:key:', '')
+  return { did, vmId: `${did}#${keyFragment}` }
 }
 
 // Distributed state store for pending offers (Redis with in-memory fallback)
@@ -478,8 +515,6 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
     }
 
     // Build the SD-JWT VC credential
-    const hostname = new URL(apiBaseUrl).hostname
-    const issuerDid = `did:web:${hostname}:issuers:${tenantId}`
     const issuanceDate = new Date().toISOString()
 
     // Extract holder binding from proof (did:jwk or did:key)
@@ -636,16 +671,10 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
     // Handle SD-JWT VC format - Sign using Credo's SdJwtVcModule
     try {
       const agent = await getAgent({ tenantId })
-
-      // Ensure the issuer key binding exists
-      const vmId = `${issuerDid}#key-0`
-      const openbadgesApi = (agent.modules as any).openbadges
-      if (openbadgesApi) {
-        await openbadgesApi.ensureBinding(issuerDid, vmId)
-        console.log(`[SD-JWT] Ensured key binding for ${vmId}`)
-      } else {
-        console.warn('[SD-JWT] OpenBadges module not available, key may not exist')
-      }
+      // did:key DIDs are created and managed by Credo's DID repository directly —
+      // no ensureBinding needed; Credo resolves the key from the created DID record.
+      const { did: issuerDid, vmId } = await getOrCreateSdJwtIssuerDid(agent)
+      console.log(`[SD-JWT] Using issuer DID: ${issuerDid}, vmId: ${vmId}`)
 
       // Build credential claims from schema attributes and provided data
       const credentialClaims: Record<string, any> = {}
