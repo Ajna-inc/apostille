@@ -598,17 +598,11 @@ function WorkflowsContent() {
     if (!isAuthenticated) return
     try {
       const response = await connectionApi.getAll()
-      const list = response.connections ?? []
-      setConnections(list)
-      // Auto-select first completed connection
-      if (!selectedConnectionId && list.length > 0) {
-        const completed = list.find((c: any) => c.state === 'completed' || c.state === 'complete')
-        setSelectedConnectionId(completed?.id || list[0].id)
-      }
+      setConnections(response.connections ?? [])
     } catch (err) {
       console.error('Failed to load connections:', err)
     }
-  }, [isAuthenticated, selectedConnectionId])
+  }, [isAuthenticated])
 
   const loadTemplates = useCallback(async () => {
     if (!isAuthenticated) return
@@ -636,15 +630,34 @@ function WorkflowsContent() {
     }
   }, [isAuthenticated])
 
-  // Initial load
+  // Restore saved connection from localStorage on mount (once)
   useEffect(() => {
-    if (typeof window !== 'undefined' && !selectedConnectionId) {
+    if (typeof window !== 'undefined') {
       const savedId = window.localStorage.getItem(WORKFLOW_CONNECTION_STORAGE_KEY)
       if (savedId) setSelectedConnectionId(savedId)
     }
+  }, [])
+
+  // Initial data load — only re-runs when auth state changes
+  useEffect(() => {
     loadConnections()
     loadTemplates()
-  }, [loadConnections, loadTemplates])
+  }, [isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-select connection when the connections list is updated.
+  // Also clears any stale ID that came from localStorage.
+  useEffect(() => {
+    if (connections.length === 0) return
+    setSelectedConnectionId(prev => {
+      if (prev && connections.some((c) => c.id === prev)) return prev
+      // Stale ID: clear localStorage so it doesn't persist across sessions
+      if (prev && typeof window !== 'undefined') {
+        window.localStorage.removeItem(WORKFLOW_CONNECTION_STORAGE_KEY)
+      }
+      const completed = connections.find((c: any) => c.state === 'completed' || c.state === 'complete')
+      return completed?.id || connections[0]?.id || prev
+    })
+  }, [connections])
 
   // Persist selected connection
   useEffect(() => {
@@ -692,6 +705,20 @@ function WorkflowsContent() {
   const handleStartWorkflow = async (template: any) => {
     if (!selectedConnectionId) {
       setError('Select a connection first')
+      return
+    }
+
+    // Guard: ensure the selected connection actually belongs to this tenant
+    if (!connections.some((c) => c.id === selectedConnectionId)) {
+      // The saved connection ID is stale (e.g. from a previous session or tenant).
+      // Auto-select the first valid connection and ask the user to retry.
+      const first = connections.find((c: any) => c.state === 'completed' || c.state === 'complete') || connections[0]
+      if (first) {
+        setSelectedConnectionId(first.id)
+        setError('Previous connection was not found. A new connection has been selected — please try again.')
+      } else {
+        setError('No valid connection found. Please create a connection first.')
+      }
       return
     }
 

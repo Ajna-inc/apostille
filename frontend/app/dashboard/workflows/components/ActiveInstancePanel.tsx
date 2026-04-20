@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { WorkflowInstancePanel } from '@ajna-inc/workflow-react'
 import { WorkflowVisualizer } from '@/app/components/workflows/WorkflowVisualizer'
 
@@ -28,17 +28,23 @@ export function ActiveInstancePanel({
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(Date.now())
 
+  // Keep a stable ref to onRefresh so the interval never restarts due to prop reference changes
+  const onRefreshRef = useRef(onRefresh)
+  useEffect(() => {
+    onRefreshRef.current = onRefresh
+  })
+
   // Auto-refresh every 3 seconds when enabled
   useEffect(() => {
     if (!instanceId || !autoRefresh) return
 
     const interval = setInterval(async () => {
-      await onRefresh()
+      await onRefreshRef.current()
       setLastRefresh(Date.now())
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [instanceId, autoRefresh, onRefresh])
+  }, [instanceId, autoRefresh])
 
   // Empty state
   if (!instanceId) {
