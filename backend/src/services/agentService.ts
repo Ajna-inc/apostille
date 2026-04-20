@@ -1,5 +1,20 @@
 import 'reflect-metadata';
-import { Agent, ConsoleLogger, LogLevel, DidsModule, InjectionSymbols, WebDidResolver, type DependencyManager, type Module } from '@credo-ts/core';
+import {
+    Agent,
+    ConsoleLogger,
+    LogLevel,
+    DidsModule,
+    InjectionSymbols,
+    WebDidResolver,
+    KeyDidResolver,
+    PeerDidResolver,
+    JwkDidResolver,
+    KeyDidRegistrar,
+    PeerDidRegistrar,
+    JwkDidRegistrar,
+    type DependencyManager,
+    type Module,
+} from '@credo-ts/core';
 import {
     DidCommAutoAcceptCredential,
     DidCommAutoAcceptProof,
@@ -15,14 +30,13 @@ import {
     DidCommWsOutboundTransport,
     type DidCommConnectionStateChangedEvent,
 } from '@credo-ts/didcomm';
-import { VaultRepository } from '@ajna-inc/vaults/build/repository/VaultRepository';
+import { VaultRepository } from '@ajna-inc/vaults';
 // BasicMessageStateChangedEvent type used implicitly in KEM handler event typing
 import { agentDependencies, DidCommHttpInboundTransport, DidCommWsInboundTransport } from '@credo-ts/node';
-import { AskarModule } from '@credo-ts/askar';
-import { askar } from '@openwallet-foundation/askar-nodejs';
+import { askar, askarNodeJS, registerAskar } from '@openwallet-foundation/askar-nodejs';
 import { TenantsModule } from '@credo-ts/tenants';
 import type { InitConfig } from '@credo-ts/core';
-import { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar';
+import type { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar';
 import { anoncreds } from '@hyperledger/anoncreds-nodejs'
 import { CheqdAnonCredsRegistry, CheqdDidRegistrar, CheqdDidResolver } from '@credo-ts/cheqd';
 import { KanonDIDResolver } from '../plugins/kanon/dids/KanonDidResolver';
@@ -39,12 +53,12 @@ import {
     AnonCredsDidCommProofFormatService,
     AnonCredsModule,
 } from '@credo-ts/anoncreds'
-import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue } from '@ajna-inc/workflow/build'
+import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue, WorkflowModuleConfig } from '@ajna-inc/workflow'
 // import { registerWorkflowActionOverrides } from './workflowActions'
 import { WebRTCModule } from '@ajna-inc/webrtc'
 import { SigningModule } from '@ajna-inc/signing'
 import { VaultsModule } from '@ajna-inc/vaults'
-import { GroupMessagingModule } from '@ajna-inc/group-messaging'
+// import { GroupMessagingModule } from '@ajna-inc/group-messaging' // Disabled: group-messaging package not available for Credo 0.6.x
 import { PoeModule } from '@ajna-inc/poe'
 import { OpenBadgesModule } from '@ajna-inc/openbadges'
 import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid4vc'
@@ -213,6 +227,10 @@ interface Tenant {
 // but their state is stored in PostgreSQL (Askar), so each pod getting its own instance is safe.
 const tenantAgentCache: Record<string, AgentWithDidComm> = {};
 
+// In-flight initialization promises — prevents multiple concurrent getTenantAgent calls
+// for the same tenant (race condition on first activation).
+const tenantInitPending: Record<string, Promise<AgentWithDidComm> | undefined> = {};
+
 // Pod-local tracking for started queues (within this pod)
 // The Redis-backed coordination happens in ensureTenantWorkflowQueue
 const startedTenantQueues: Record<string, boolean> = {};
@@ -244,7 +262,6 @@ async function ensureTenantWorkflowQueue(tenantAgent: AgentWithDidComm, tenantId
         // Try to read asyncQueue options from WorkflowModuleConfig if present
         let asyncQueueOpts: any = undefined;
         try {
-            const { WorkflowModuleConfig } = require('@ajna-inc/workflow/build');
             const cfg = tenantAgent.dependencyManager.resolve(WorkflowModuleConfig) as any;
             asyncQueueOpts = (cfg && (cfg as any).asyncQueue) || undefined;
         } catch {}
@@ -356,6 +373,10 @@ async function initializeAgent(
     walletKey: string,
     multiWalletDatabaseScheme?: AskarMultiWalletDatabaseScheme
 ): Promise<AgentWithDidComm> {
+    // Ensure Askar native bindings are registered before loading @credo-ts/askar
+    registerAskar({ askar: askarNodeJS });
+    const { AskarModule, AskarMultiWalletDatabaseScheme } = await import('@credo-ts/askar');
+
     // Test database connection first
     console.log('Testing database connection...');
     try {
@@ -412,8 +433,21 @@ async function initializeAgent(
                     multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.DatabasePerWallet,
                 }),
                 dids: new DidsModule({
-                    resolvers: [new WebDidResolver(), new CheqdDidResolver(), new KanonDIDResolver(ledgerService)],
-                    registrars: [new CheqdDidRegistrar(), new KanonDIDRegistrar(ledgerService)],
+                    resolvers: [
+                        new WebDidResolver(),
+                        new KeyDidResolver(),
+                        new PeerDidResolver(),
+                        new JwkDidResolver(),
+                        new CheqdDidResolver(),
+                        new KanonDIDResolver(ledgerService),
+                    ],
+                    registrars: [
+                        new KeyDidRegistrar(),
+                        new PeerDidRegistrar(),
+                        new JwkDidRegistrar(),
+                        new CheqdDidRegistrar(),
+                        new KanonDIDRegistrar(ledgerService),
+                    ],
                 }),
                 didcomm: new DidCommModule({
                     endpoints,
@@ -466,7 +500,7 @@ async function initializeAgent(
                     inlineThreshold: 5 * 1024 * 1024,  // 5MB - files larger use S3
                 })),
 
-                groupMessaging: wrapLegacyModule(new GroupMessagingModule()),
+                // groupMessaging: wrapLegacyModule(new GroupMessagingModule()),
                 webrtc: wrapLegacyModule(new WebRTCModule()),
                 poe: wrapLegacyModule(new PoeModule({
                     autoExecuteProofs: true,
@@ -1052,12 +1086,30 @@ const setupKemKeyExchangeHandler = (agent: AgentWithDidComm) => {
     });
 };
 
+// Patterns that indicate a stale/dead Askar session — safe to evict + retry
+const STALE_SESSION_PATTERNS = [
+    'Failed to acquire an agent context session',
+    'wallet is closed',
+    'wallet has been closed',
+    'database is closed',
+    'connection was closed',
+    'connection refused',
+    'AskarError',
+    'WalletError',
+    'is not open',
+];
+
+function isStaleSessionError(error: any): boolean {
+    const msg: string = (error?.message ?? '').toLowerCase();
+    return STALE_SESSION_PATTERNS.some(p => msg.includes(p.toLowerCase()));
+}
+
 // Helper function to implement retries with exponential backoff
 async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES, delay = RETRY_DELAY): Promise<T> {
     try {
         return await fn();
     } catch (error: any) {
-        if (retries <= 0 || !error.message?.includes('Failed to acquire an agent context session')) {
+        if (retries <= 0 || !isStaleSessionError(error)) {
             throw error;
         }
 
@@ -1068,113 +1120,125 @@ async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES, delay =
 }
 
 /**
- * Get or create an agent for a wallet ID
+ * Clears the cached tenant agent so the next call to getAgent() opens a fresh session.
+ */
+export function clearTenantAgentCache(tenantId: string): void {
+    delete tenantAgentCache[tenantId];
+    console.log(`[AgentService] Cleared cached tenant agent for tenant: ${tenantId}`);
+}
+
+/**
+ * Activate a tenant agent: open a session, wire up handlers, start the workflow queue.
+ * Returns the tenant agent and caches it. Runs processExistingKemMessages in the background.
+ */
+async function activateTenantAgent(tenantId: string, baseAgent: AgentWithDidComm): Promise<AgentWithDidComm> {
+    const tenantAgent = await withRetry(() => baseAgent.modules.tenants.getTenantAgent({
+        tenantId
+    })) as AgentWithDidComm;
+
+    tenantAgentCache[tenantId] = tenantAgent;
+    console.log(`Cached tenant agent for tenant: ${tenantId}`);
+
+    // Set up KEM key exchange message handler
+    setupKemKeyExchangeHandler(tenantAgent);
+
+    // Process existing KEM messages in the background — don't block the first API response
+    processExistingKemMessages(tenantAgent).catch(err => {
+        console.error('[KEM] Failed to process existing messages:', err);
+    });
+
+    // Track activity in Redis (non-blocking)
+    tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID }).catch(() => {});
+
+    // Start workflow queue (awaited — needs to be ready before first workflow request)
+    await ensureTenantWorkflowQueue(tenantAgent, tenantId);
+
+    return tenantAgent;
+}
+
+/**
+ * Get or create an agent for a wallet ID. Automatically evicts the cache and reopens
+ * a fresh session when the cached agent's Askar session has gone stale (e.g. after idle).
  */
 export async function getAgent({
-    tenantId
+    tenantId,
 }: {
-    tenantId?: string
+    tenantId?: string;
 }): Promise<AgentWithDidComm> {
-    console.log(`Getting agent for tenant: ${tenantId}`);
-
     if (!tenantId) {
         throw new Error('Tenant ID is required');
     }
 
+    // Fast path: cached agent
     if (tenantAgentCache[tenantId]) {
-        console.log(`Using cached tenant agent for tenant: ${tenantId}`);
         // Update activity in Redis (async, don't await to avoid blocking)
         tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID }).catch(() => {});
         return tenantAgentCache[tenantId];
     }
 
-    if (mainAgent) {
-        console.log(`Using existing main agent for tenant: ${tenantId}`);
-
-        try {
-            const tenantAgent = await withRetry(() => mainAgent!.modules.tenants.getTenantAgent({
-                tenantId
-            })) as AgentWithDidComm;
-
-            tenantAgentCache[tenantId] = tenantAgent;
-            console.log(`Cached tenant agent for tenant: ${tenantId}`);
-
-            // Set up KEM key exchange message handler
-            setupKemKeyExchangeHandler(tenantAgent);
-
-            // Process any existing unprocessed KEM messages (must complete before returning)
-            try {
-                await processExistingKemMessages(tenantAgent);
-            } catch (err) {
-                console.error('[KEM] Failed to process existing messages:', err);
-            }
-
-            // Track activity in Redis
-            await tenantActivityCache.set(tenantId, { lastAccess: new Date().toISOString(), podId: POD_ID });
-
-            await ensureTenantWorkflowQueue(tenantAgent, tenantId);
-
-            return tenantAgent;
-        } catch (error) {
-            console.error(`Error getting tenant agent: ${error}`);
-            throw error;
-        }
+    // Serialize initialization: if already initializing this tenant, wait for that promise
+    // instead of opening a second concurrent session (prevents leaked sessions + double-init).
+    if (tenantInitPending[tenantId]) {
+        return tenantInitPending[tenantId];
     }
 
-    try {
-        console.log(`Main agent not initialized. Creating new main agent.`);
-        const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+    const initPromise = (async (): Promise<AgentWithDidComm> => {
+        // Re-check cache inside the async block (another init may have completed while we awaited)
+        const cached = tenantAgentCache[tenantId];
+        if (cached) return cached;
 
-        const tenantAgent = await withRetry(() => agent.modules.tenants.getTenantAgent({
-            tenantId
-        })) as AgentWithDidComm;
-
-        tenantAgentCache[tenantId] = tenantAgent;
-        console.log(`Cached tenant agent for tenant: ${tenantId}`);
-
-        // Set up KEM key exchange message handler
-        setupKemKeyExchangeHandler(tenantAgent);
-
-        // Process any existing unprocessed KEM messages (must complete before returning)
-        try {
-            await processExistingKemMessages(tenantAgent);
-        } catch (err) {
-            console.error('[KEM] Failed to process existing messages:', err);
-        }
-
-        await ensureTenantWorkflowQueue(tenantAgent, tenantId);
-
-        return tenantAgent;
-    } catch (error: any) {
-        if (error.message?.includes('already exists')) {
-            console.log(`Wallet already exists, trying to open it`);
-
-            const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
-
-            const tenantAgent = await withRetry(() => agent.modules.tenants.getTenantAgent({
-                tenantId
-            })) as AgentWithDidComm;
-
-            tenantAgentCache[tenantId] = tenantAgent;
-            console.log(`Cached tenant agent for tenant: ${tenantId}`);
-
-            // Set up KEM key exchange message handler
-            setupKemKeyExchangeHandler(tenantAgent);
-
-            // Process any existing unprocessed KEM messages (must complete before returning)
+        if (mainAgent) {
+            console.log(`Using existing main agent for tenant: ${tenantId}`);
             try {
-                await processExistingKemMessages(tenantAgent);
-            } catch (err) {
-                console.error('[KEM] Failed to process existing messages:', err);
+                return await activateTenantAgent(tenantId, mainAgent);
+            } catch (error) {
+                console.error(`Error getting tenant agent: ${error}`);
+                throw error;
             }
-
-            await ensureTenantWorkflowQueue(tenantAgent, tenantId);
-
-            return tenantAgent;
         }
 
-        console.error(`Failed to get agent for tenant ${tenantId}:`, error);
-        throw error;
+        try {
+            console.log(`Main agent not initialized. Creating new main agent.`);
+            const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+            return await activateTenantAgent(tenantId, agent);
+        } catch (error: any) {
+            if (error.message?.includes('already exists')) {
+                console.log(`Wallet already exists, trying to open it`);
+                const agent = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+                return await activateTenantAgent(tenantId, agent);
+            }
+            console.error(`Failed to get agent for tenant ${tenantId}:`, error);
+            throw error;
+        }
+    })();
+
+    tenantInitPending[tenantId] = initPromise;
+    try {
+        return await initPromise;
+    } finally {
+        delete tenantInitPending[tenantId];
+    }
+}
+
+/**
+ * Run an operation with a tenant agent, automatically recovering from stale sessions.
+ * On a stale/closed session error the cache is evicted and the operation retried once
+ * with a fresh session — fixing the "slows down after idle / stops on error" symptom.
+ */
+export async function withAgent<T>(
+    tenantId: string,
+    operation: (agent: AgentWithDidComm) => Promise<T>
+): Promise<T> {
+    const agent = await getAgent({ tenantId });
+    try {
+        return await operation(agent);
+    } catch (error: any) {
+        if (!isStaleSessionError(error)) throw error;
+
+        console.warn(`[AgentService] Stale session detected for tenant ${tenantId}, reopening: ${error.message}`);
+        clearTenantAgentCache(tenantId);
+        const freshAgent = await getAgent({ tenantId });
+        return operation(freshAgent);
     }
 }
 
@@ -1186,6 +1250,22 @@ export async function getMainAgent(): Promise<AgentWithDidComm> {
         throw new Error('Main agent not initialized');
     }
     return mainAgent;
+}
+
+/**
+ * Get the label for a tenant by ID
+ */
+export async function getTenantLabel(tenantId: string): Promise<string | null> {
+    try {
+        if (!mainAgent || !mainAgent.isInitialized) {
+            await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+        }
+        if (!mainAgent) return null;
+        const tenantRecord = await mainAgent.modules.tenants.getTenantById(tenantId);
+        return tenantRecord?.config?.label ?? null;
+    } catch {
+        return null;
+    }
 }
 
 /**

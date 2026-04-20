@@ -26,4 +26,4 @@ RUN yarn build
 
 EXPOSE 3002 3001
 
-CMD ["yarn", "start"]
+CMD ["node", "--experimental-specifier-resolution=node", "dist/index.js"]

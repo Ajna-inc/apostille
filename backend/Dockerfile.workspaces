@@ -14,6 +14,11 @@ COPY packages/workflow-client/package.json ./packages/workflow-client/
 COPY packages/workflow-ui-core/package.json ./packages/workflow-ui-core/
 COPY packages/workflow-react/package.json ./packages/workflow-react/
 COPY packages/workflow-e2e-tests/package.json ./packages/workflow-e2e-tests/
+COPY vendor/ ./vendor/
+RUN ls -la /repo/vendor
+
+
+
 
 # Install with BuildKit cache mount for faster rebuilds
 ENV YARN_ENABLE_IMMUTABLE_INSTALLS=false
@@ -47,10 +52,12 @@ ENV NODE_ENV=production
 
 # Only copy what the backend needs at runtime
 COPY --from=proddeps /repo/node_modules ./node_modules
+# Ensure vaults WASM is available where the loader expects it
+RUN node -e "const fs=require('fs');const src='/app/node_modules/@ajna-inc/vaults/wasm/vault_crypto_bg.wasm';const dst='/app/node_modules/@ajna-inc/vaults/build/wasm/vault_crypto_bg.wasm';if(!fs.existsSync(src))process.exit(0);fs.mkdirSync('/app/node_modules/@ajna-inc/vaults/build/wasm',{recursive:true});if(!fs.existsSync(dst))fs.copyFileSync(src,dst);"
 # Copy BUILT packages from builder stage (not unbuilt from proddeps)
 COPY --from=builder /repo/packages ./packages
 COPY --from=builder /repo/backend/dist ./dist
 COPY backend/package.json ./package.json
 
 EXPOSE 3002 3003 3004
-CMD ["node", "dist/index.js"]
+CMD ["node", "--experimental-specifier-resolution=node", "dist/index.js"]
