@@ -811,6 +811,8 @@ export default function PdfSigningPage() {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+
+
   const renderSectionHeader = (opts: {
     keyId?: string;
     title: string;
