@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { getAgent } from '../services/agentService';
+import { DidCommRoutingService } from '@credo-ts/didcomm';
+import { getAgent, getTenantLabel } from '../services/agentService';
 import { auth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -159,7 +160,7 @@ router.route('/receive-invitation')
   .post(auth, async (req: Request, res: Response) => {
     try {
       const tenantId = req.user.tenantId;
-      const { invitationUrl } = req.body;
+      const { invitationUrl, label } = req.body;
 
       if (!invitationUrl) {
         res.status(400).json({
@@ -170,8 +171,15 @@ router.route('/receive-invitation')
       }
 
       const agent = await getAgent({ tenantId });
+      const routingService = agent.context.dependencyManager.resolve(DidCommRoutingService);
+      const routing = await routingService.getRouting(agent.context);
 
-      const { connectionRecord } = await agent.didcomm.oob.receiveInvitationFromUrl(invitationUrl);
+      const tenantLabel = await getTenantLabel(tenantId);
+      const connectionLabel = typeof label === 'string' && label.trim().length > 0 ? label.trim() : (tenantLabel ?? 'Unknown');
+      const { connectionRecord } = await agent.didcomm.oob.receiveInvitationFromUrl(invitationUrl, {
+        routing,
+        label: connectionLabel,
+      });
 
       if (!connectionRecord) {
         res.status(400).json({

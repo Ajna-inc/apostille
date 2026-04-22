@@ -1,7 +1,7 @@
 // Typed notification primitives for WS-only delivery
 
 import { DidCommBasicMessageEventTypes, DidCommCredentialEventTypes, DidCommEventTypes, DidCommProofEventTypes } from '@credo-ts/didcomm'
-import { WorkflowEventTypes } from '@ajna-inc/workflow/build/WorkflowEvents'
+import { WorkflowEventTypes } from '@ajna-inc/workflow'
 import { SigningEventTypes } from '@ajna-inc/signing'
 
 export type NotificationType =

@@ -1,9 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getAgent } from '../services/agentService';
 import { PdfUtils, SignaturePlaceholderOptions } from '@ajna-inc/signing';
-import { VaultRepository } from '@ajna-inc/vaults/build/repository/VaultRepository';
-import { VaultRecord } from '@ajna-inc/vaults/build/repository/VaultRecord';
-import { VaultEncryptionService, generateUuid, toBase64Url } from '@ajna-inc/vaults/build';
+import { VaultRepository, VaultRecord, VaultEncryptionService, generateUuid, toBase64Url } from '@ajna-inc/vaults';
 import multer from 'multer';
 import * as crypto from 'crypto';
 

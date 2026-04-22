@@ -10,7 +10,7 @@ import {
   type DidCommMessageReceivedEvent,
   type DidCommProofStateChangedEvent,
 } from '@credo-ts/didcomm'
-import { WorkflowEventTypes, type WorkflowInstanceStateChangedEvent, type WorkflowInstanceStatusChangedEvent, type WorkflowInstanceCompletedEvent } from '@ajna-inc/workflow/build/WorkflowEvents'
+import { WorkflowEventTypes, type WorkflowInstanceStateChangedEvent, type WorkflowInstanceStatusChangedEvent, type WorkflowInstanceCompletedEvent } from '@ajna-inc/workflow'
 import { SigningEventTypes } from '@ajna-inc/signing'
 import type { SigningStateChangedEvent } from '@ajna-inc/signing'
 import { PoeEventTypes } from '@ajna-inc/poe'

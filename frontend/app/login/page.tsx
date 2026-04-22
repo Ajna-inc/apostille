@@ -49,7 +49,7 @@ export default function LoginPage() {
             Welcome back
           </h2>
           <p className="text-text-secondary">
-            Sign in to your Apostille account
+            Sign in to your {process.env.NEXT_PUBLIC_COMPANY_NAME} account
           </p>
         </div>
 
