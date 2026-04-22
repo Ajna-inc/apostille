@@ -64,7 +64,7 @@ export default function LoginPage() {
           )}
           
           {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} method="post" className="space-y-6">
             <div className="space-y-4">
               {/* Email Field */}
               <div>
