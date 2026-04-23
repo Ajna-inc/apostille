@@ -26,6 +26,7 @@ import pdfSigningRoutes from './routes/pdfSigningRoutes';
 import webrtcRoutes from './routes/webrtcRoutes';
 // import groupRoutes from './routes/groupRoutes'; // Disabled: group-messaging package not available for Credo 0.6.x
 import poeRoutes from './routes/poeRoutes';
+import calendarRoutes from './routes/calendarRoutes';
 import { createSocketGateway } from './services/socketGateway';
 import wellKnownRoutes, { createIssuerRoutes } from './routes/wellKnownRoutes';
 import openBadgesRoutes from './routes/openBadgesRoutes';
@@ -261,6 +262,10 @@ app.use('/api/webrtc', webrtcRoutes);
 // POE (Proof of Execution)
 app.use('/api/poe', auth);
 app.use('/api/poe', poeRoutes);
+
+// Calendar (Decentralized scheduling)
+app.use('/api/calendar', auth);
+app.use('/api/calendar', calendarRoutes);
 
 // Credential Designer (Visual OCA Editor)
 app.use('/api/credential-designer', credentialDesignerRoutes);

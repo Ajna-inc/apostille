@@ -29,9 +29,11 @@
     "e2e:ui": "yarn workspace frontend cypress run"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "concurrently": "^8.2.2",
     "dotenv-cli": "^7.3.0",
-    "jest-environment-jsdom": "^29.7.0"
+    "jest-environment-jsdom": "^29.7.0",
+    "tsx": "^4.21.0"
   },
   "dependencies": {
     "@openwallet-foundation/askar-nodejs": "^0.4.3",

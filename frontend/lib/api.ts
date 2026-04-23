@@ -887,6 +887,97 @@ export const vaultApi = {
 };
 
 /**
+ * Calendar API functions
+ * For decentralized calendar coordination via DIDComm
+ */
+export const calendarApi = {
+  listEvents: async (filters?: { role?: string; connectionId?: string }) => {
+    const params = new URLSearchParams()
+    if (filters?.role) params.set('role', filters.role)
+    if (filters?.connectionId) params.set('connectionId', filters.connectionId)
+    const qs = params.toString()
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/events${qs ? `?${qs}` : ''}`)
+  },
+  getEvent: async (eventId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/events/${eventId}`)
+  },
+  getUpcoming: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/upcoming`)
+  },
+  propose: async (data: {
+    title: string; type: string; time_options: any[]; participant_dids: string[];
+    connection_id: string; organizer_did: string; [key: string]: any
+  }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/propose`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  invite: async (data: {
+    title: string; type: string; start: string; end: string; timezone: string;
+    participant_dids: string[]; connection_id: string; organizer_did: string; [key: string]: any
+  }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/invite`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  accept: async (data: { event_id: string; comment?: string; signed_rsvp?: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/accept`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  decline: async (data: { event_id: string; reason?: string; counter_propose?: any }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/decline`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  tentative: async (data: { event_id: string; confirm_by?: string; comment?: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/tentative`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  update: async (data: { event_id: string; changes: Record<string, any>; reason?: string; require_re_rsvp?: boolean }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/update`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  cancel: async (data: { event_id: string; reason?: string; cancel_scope?: string; recurrence_id?: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  delegate: async (data: { event_id: string; delegate_to: string; scope?: string; reason?: string; jws: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/delegate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  pollVote: async (data: { event_id: string; votes: any[] }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/poll-vote`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  pollClose: async (data: { event_id: string; selected_option_id: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/poll-close`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  queryAvailability: async (data: { connection_id: string; range: { start: string; end: string }; timezone?: string; granularity_minutes?: number; purpose?: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/query-availability`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  sendReminder: async (data: { event_id: string; connection_id: string; offset_minutes?: number; action?: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/send-reminder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+  recurrenceException: async (data: { event_id: string; recurrence_id: string; action: 'modify' | 'cancel'; changes?: Record<string, any>; reason?: string }) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/calendar/recurrence-exception`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    })
+  },
+}
+
+/**
  * PDF Signing API functions
  * For PDF document signing workflows with vaults
  * Uses ML-KEM-768 post-quantum encryption ()

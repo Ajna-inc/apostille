@@ -38,7 +38,6 @@ import { TenantsModule } from '@credo-ts/tenants';
 import type { InitConfig } from '@credo-ts/core';
 import type { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar';
 import { anoncreds } from '@hyperledger/anoncreds-nodejs'
-import { CheqdAnonCredsRegistry, CheqdDidRegistrar, CheqdDidResolver } from '@credo-ts/cheqd';
 import { KanonDIDResolver } from '../plugins/kanon/dids/KanonDidResolver';
 import { KanonDIDRegistrar } from '../plugins/kanon/dids/KanonDidRegistrar';
 import { KanonModuleConfig } from '../plugins/kanon/KanonModuleConfig';
@@ -60,6 +59,7 @@ import { SigningModule } from '@ajna-inc/signing'
 import { VaultsModule } from '@ajna-inc/vaults'
 // import { GroupMessagingModule } from '@ajna-inc/group-messaging' // Disabled: group-messaging package not available for Credo 0.6.x
 import { PoeModule } from '@ajna-inc/poe'
+import { CalendarModule } from '@ajna-inc/calendar'
 import { OpenBadgesModule } from '@ajna-inc/openbadges'
 import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid4vc'
 import { getMockPoePrograms } from '../poe/MockPoeProgram'
@@ -413,7 +413,6 @@ async function initializeAgent(
     const ledgerService = new EthereumLedgerService(ethConfig);
     try {
 
-        // did:cheqd:testnet:e6a2015b-3d0e-462a-bf8b-88872553867d/resources/d99ac606-ab4b-4957-97c5-bf97438b2180
         const agent = new Agent({
             config,
             dependencies: agentDependencies,
@@ -422,7 +421,6 @@ async function initializeAgent(
                     sessionAcquireTimeout: AGENT_SESSION_TIMEOUT,
                     sessionLimit: 10
                 }),
-                // basicMessages: new BasicMessagesModule(),
                 askar: new AskarModule({
                     askar: askar,
                     store: {
@@ -438,14 +436,12 @@ async function initializeAgent(
                         new KeyDidResolver(),
                         new PeerDidResolver(),
                         new JwkDidResolver(),
-                        new CheqdDidResolver(),
                         new KanonDIDResolver(ledgerService),
                     ],
                     registrars: [
                         new KeyDidRegistrar(),
                         new PeerDidRegistrar(),
                         new JwkDidRegistrar(),
-                        new CheqdDidRegistrar(),
                         new KanonDIDRegistrar(ledgerService),
                     ],
                 }),
@@ -478,7 +474,7 @@ async function initializeAgent(
 
                 // oob: new OutOfBandModule(),
                 anoncreds: new AnonCredsModule({
-                    registries: [new CheqdAnonCredsRegistry(), new KanonAnonCredsRegistry()],
+                    registries: [new KanonAnonCredsRegistry()],
                     anoncreds,
                 }),
                 
@@ -510,6 +506,9 @@ async function initializeAgent(
                 openbadges: wrapLegacyModule(new OpenBadgesModule({
                     cryptosuite: 'eddsa-rdfc-2022',
                 })),
+                calendar: new CalendarModule({
+                    enableProblemReport: true,
+                }),
                 // OpenID4VC Issuer Module for issuing credentials via OID4VCI
                 openId4VcIssuer: new OpenId4VcIssuerModule({
                     baseUrl: apiBaseUrl,

@@ -14,6 +14,7 @@ import { WorkflowEventTypes, type WorkflowInstanceStateChangedEvent, type Workfl
 import { SigningEventTypes } from '@ajna-inc/signing'
 import type { SigningStateChangedEvent } from '@ajna-inc/signing'
 import { PoeEventTypes } from '@ajna-inc/poe'
+import { CalendarEventTypes } from '@ajna-inc/calendar'
 import { bus, type NotificationPayload } from '../notifications/bus'
 import { WebRTCEvents } from '@ajna-inc/webrtc'
 import { isEnabled } from '../notifications/registry'
@@ -265,6 +266,104 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
       },
     } as any)
   }
+  // Calendar events
+  const onCalendarStateChanged = (e: any) => {
+    if (!acceptForTenant(e)) return
+    const rec = e?.payload?.eventRecord
+    emit(tenantId, {
+      type: 'CalendarEventStateChanged',
+      payload: {
+        eventId: rec?.eventId,
+        role: rec?.role,
+        previousState: e?.payload?.previousState,
+        newState: e?.payload?.newState,
+        action: e?.payload?.action,
+      },
+    } as any)
+  }
+  const onCalendarInviteeStatus = (e: any) => {
+    if (!acceptForTenant(e)) return
+    emit(tenantId, {
+      type: 'CalendarInviteeStatusChanged',
+      payload: {
+        eventId: e?.payload?.eventRecord?.eventId,
+        participantDid: e?.payload?.participantDid,
+        previousStatus: e?.payload?.previousStatus,
+        newStatus: e?.payload?.newStatus,
+      },
+    } as any)
+  }
+  const onCalendarPollCompleted = (e: any) => {
+    if (!acceptForTenant(e)) return
+    emit(tenantId, {
+      type: 'CalendarPollCompleted',
+      payload: {
+        eventId: e?.payload?.eventRecord?.eventId,
+        selectedOptionId: e?.payload?.selectedOptionId,
+      },
+    } as any)
+  }
+  const onCalendarCancelled = (e: any) => {
+    if (!acceptForTenant(e)) return
+    emit(tenantId, {
+      type: 'CalendarEventCancelled',
+      payload: {
+        eventId: e?.payload?.eventRecord?.eventId,
+        reason: e?.payload?.reason,
+      },
+    } as any)
+  }
+  const onCalendarReminder = (e: any) => {
+    if (!acceptForTenant(e)) return
+    const payload = e?.payload
+    const record = payload?.eventRecord
+    emit(tenantId, {
+      type: 'CalendarReminderTriggered',
+      payload: {
+        eventId: record?.eventId,
+        title: record?.event?.title,
+        offsetMinutes: payload?.offsetMinutes,
+        action: payload?.action,
+        callTrigger: payload?.callTrigger,
+      },
+    } as any)
+
+    // Auto-trigger WebRTC call when reminder has action=join_call
+    if (payload?.action === 'join_call' && record?.event?.type === 'call') {
+      ;(async () => {
+        try {
+          const { getAgent } = await import('./agentService')
+          const ag = await getAgent({ tenantId })
+          const webrtc = ag?.modules?.webrtc
+          if (!webrtc?.proposeCall) return
+
+          const participants = record?.event?.participants || []
+          const accepted = participants.filter((p: any) => p.status === 'accepted' && p.role !== 'organizer')
+          const callConfig = payload?.callTrigger?.preconfig || record?.event?.call_config || {}
+
+          for (const p of accepted) {
+            // Find connection for this participant (best-effort)
+            const connId = record?.connectionId
+            if (!connId) continue
+            try {
+              await webrtc.proposeCall({
+                connectionId: connId,
+                parentThreadId: record.eventId,
+                media: callConfig.media || ['audio', 'video'],
+                topology: callConfig.topology || 'mesh',
+                iceServers: callConfig.ice_servers,
+              })
+              console.log(`[Calendar] WebRTC propose sent for event=${record.eventId} connection=${connId}`)
+            } catch (err: any) {
+              console.warn(`[Calendar] WebRTC propose failed for connection=${connId}: ${err?.message}`)
+            }
+          }
+        } catch (err: any) {
+          console.warn(`[Calendar] WebRTC auto-trigger error: ${err?.message}`)
+        }
+      })()
+    }
+  }
   // Repository hooks: capture BasicMessageRecord persistence as a fallback
   const onRepoSaved: (e: any) => void = (e) => {
     try {
@@ -347,6 +446,11 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
   emitter.on(PoeEventTypes.PoeRequestReceived as any, onPoeRequestReceived as any)
   emitter.on(PoeEventTypes.PoeSubmitReceived as any, onPoeSubmitReceived as any)
   emitter.on(PoeEventTypes.PoeCompleted as any, onPoeCompleted as any)
+  emitter.on(CalendarEventTypes.CalendarEventStateChanged as any, onCalendarStateChanged as any)
+  emitter.on(CalendarEventTypes.CalendarInviteeStatusChanged as any, onCalendarInviteeStatus as any)
+  emitter.on(CalendarEventTypes.CalendarPollCompleted as any, onCalendarPollCompleted as any)
+  emitter.on(CalendarEventTypes.CalendarEventCancelled as any, onCalendarCancelled as any)
+  emitter.on(CalendarEventTypes.CalendarReminderTriggered as any, onCalendarReminder as any)
   emitter.on(RepositoryEventTypes.RecordSaved, onRepoSaved as any)
   // Do not attach AgentMessageReceived; it's diagnostic only and may log context mismatches noisily.
 
@@ -369,6 +473,11 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
       try { emitter.off(PoeEventTypes.PoeRequestReceived as any, onPoeRequestReceived as any) } catch {}
       try { emitter.off(PoeEventTypes.PoeSubmitReceived as any, onPoeSubmitReceived as any) } catch {}
       try { emitter.off(PoeEventTypes.PoeCompleted as any, onPoeCompleted as any) } catch {}
+      try { emitter.off(CalendarEventTypes.CalendarEventStateChanged as any, onCalendarStateChanged as any) } catch {}
+      try { emitter.off(CalendarEventTypes.CalendarInviteeStatusChanged as any, onCalendarInviteeStatus as any) } catch {}
+      try { emitter.off(CalendarEventTypes.CalendarPollCompleted as any, onCalendarPollCompleted as any) } catch {}
+      try { emitter.off(CalendarEventTypes.CalendarEventCancelled as any, onCalendarCancelled as any) } catch {}
+      try { emitter.off(CalendarEventTypes.CalendarReminderTriggered as any, onCalendarReminder as any) } catch {}
       try { console.log(`[WS] detached event producers for tenant=${tenantId}`) } catch {}
     } catch {}
   }

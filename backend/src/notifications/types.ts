@@ -26,6 +26,12 @@ export type NotificationType =
   | 'PoeRequestReceived'
   | 'PoeSubmitReceived'
   | 'PoeCompleted'
+  // Calendar events
+  | 'CalendarEventStateChanged'
+  | 'CalendarInviteeStatusChanged'
+  | 'CalendarPollCompleted'
+  | 'CalendarEventCancelled'
+  | 'CalendarReminderTriggered'
 
 // Build a concrete list for validation from the enums
 export const NOTIFICATION_TYPES = [
@@ -50,6 +56,12 @@ export const NOTIFICATION_TYPES = [
   'PoeRequestReceived',
   'PoeSubmitReceived',
   'PoeCompleted',
+  // Calendar events
+  'CalendarEventStateChanged',
+  'CalendarInviteeStatusChanged',
+  'CalendarPollCompleted',
+  'CalendarEventCancelled',
+  'CalendarReminderTriggered',
 ] as const satisfies readonly NotificationType[]
 
 export type NotificationPayload<T = unknown> = {

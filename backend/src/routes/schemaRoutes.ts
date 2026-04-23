@@ -39,8 +39,8 @@ router.route('/')
   .post(auth, async (req: Request, res: Response) => {
     try {
         const tenantId = req.user.tenantId;
-        // Default to cheqd if not specified as it's more reliable
-        const { name, version, attributes, provider = 'cheqd', issuerId: requestedIssuerId } = req.body;
+        // Default to kanon
+        const { name, version, attributes, provider = 'kanon', issuerId: requestedIssuerId } = req.body;
 
         if (!name || !version || !attributes) {
             res.status(400).json({
@@ -68,7 +68,6 @@ router.route('/')
             else {
                 // First, strictly check for a matching DID
                 const matchingDids = dids.filter(did => {
-                    if (provider === 'cheqd') return did.did.startsWith('did:cheqd');
                     if (provider === 'kanon') return did.did.startsWith('did:kanon');
                     return false;
                 });
@@ -95,8 +94,7 @@ router.route('/')
             
             // Validate that the issuerDid matches the selected provider
             const didMethod = issuerDid.split(':')[1];
-            if ((provider === 'cheqd' && didMethod !== 'cheqd') || 
-                (provider === 'kanon' && didMethod !== 'kanon')) {
+            if (provider === 'kanon' && didMethod !== 'kanon') {
                 res.status(400).json({
                     success: false,
                     message: `Issuer DID type (${didMethod}) does not match selected provider (${provider})`,
@@ -109,43 +107,24 @@ router.route('/')
             console.log(`Schema creation with provider: ${provider}, issuer DID: ${issuerDid}`);
             console.log(`Schema details - name: ${name}, version: ${version}, attributes:`, attributes);
 
-            // Ensure we have correct options structure based on the provider
-            let schemaOptions;
-            
-            if (provider === 'kanon') {
-                schemaOptions = {
+            // Build schema options for kanon provider
+            const schemaOptions = {
+                network: "testnet",
+                options: {
+                    methodSpecificIdAlgo: "uuid",
+                    method: "kanon",
                     network: "testnet",
-                    options: {
-                        methodSpecificIdAlgo: "uuid",
-                        method: "kanon",
-                        network: "testnet",
-                    },
-                    schema: {
-                        attrNames: attributes,
-                        issuerId: issuerDid,
-                        name,
-                        version
-                    }
-                };
-            } else { // cheqd
-                schemaOptions = {
-                    network: "testnet",
-                    options: {
-                        network: "testnet",
-                        methodSpecificIdAlgo: "uuid",
-                        method: "cheqd",
-                    },
-                    schema: {
-                        attrNames: attributes,
-                        issuerId: issuerDid,
-                        name,
-                        version
-                    }
-                };
-            }
-            
+                },
+                schema: {
+                    attrNames: attributes,
+                    issuerId: issuerDid,
+                    name,
+                    version
+                }
+            };
+
             // Validate schema options before proceeding
-            if (!schemaOptions.schema.issuerId || 
+            if (!schemaOptions.schema.issuerId ||
                 schemaOptions.schema.issuerId === '') {
                 throw new Error('A valid issuer DID is required for schema creation');
             }

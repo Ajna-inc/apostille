@@ -52,7 +52,15 @@ export class PdfSigningPage {
     connectionLabel: string,
     description?: string
   ) {
-    await this.page.getByText('+ Upload PDF').click();
+    // The entry button may be "Get Signatures" (empty state) or "+ Upload PDF"
+    const getSignaturesBtn = this.page.getByText('Get Signatures');
+    const uploadPdfBtn = this.page.getByText('+ Upload PDF');
+    await getSignaturesBtn.or(uploadPdfBtn).first().waitFor({ timeout: 15_000 });
+    if (await getSignaturesBtn.isVisible().catch(() => false)) {
+      await getSignaturesBtn.click();
+    } else {
+      await uploadPdfBtn.click();
+    }
     await this.page.getByText('Upload PDF for Signing').waitFor();
 
     // Upload file
@@ -139,15 +147,12 @@ export class PdfSigningPage {
     commonName: string;
     keyPassword: string;
   }) {
-    // Expand the collapsible section first
-    await this.expandSection('Documents to Sign');
-
-    // Click "Sign" in the Documents to Sign section
+    // Click the "Sign" button — it may be on the landing page "Latest Task" card
+    // or inside a "Documents to Sign" collapsible section
     const signBtn = this.page
-      .locator('.card')
-      .filter({ hasText: 'Documents to Sign' })
-      .getByText('Sign', { exact: true })
+      .getByRole('button', { name: 'Sign', exact: true })
       .first();
+    await signBtn.waitFor({ timeout: 15_000 });
     await signBtn.click();
 
     // After clicking Sign, the page downloads the PDF first.
@@ -163,12 +168,11 @@ export class PdfSigningPage {
       // Wait for the Required Fields sidebar to appear, then click
       // the "Sign Here" entry — it triggers the same handleFieldClick
       // as clicking the overlay on the canvas.
-      const sidebar = this.page.locator('text=Required Fields').locator('..');
-      await sidebar.waitFor({ timeout: 15_000 });
-      const signHereBtn = sidebar
-        .getByRole('button')
-        .filter({ hasText: 'Sign Here' })
+      await this.page.getByText('Required Fields').waitFor({ timeout: 15_000 });
+      const signHereBtn = this.page
+        .getByRole('button', { name: /Sign Here/ })
         .first();
+      await signHereBtn.waitFor({ timeout: 10_000 });
       await signHereBtn.click();
 
       // SignatureAdoptionModal should open
@@ -189,9 +193,8 @@ export class PdfSigningPage {
       ).not.toBeVisible({ timeout: 10_000 });
 
       // Handle any "Name" fields that trigger the NameAdoptionModal
-      const nameFieldBtn = sidebar
-        .getByRole('button')
-        .filter({ hasText: 'Name' })
+      const nameFieldBtn = this.page
+        .getByRole('button', { name: /^Name/ })
         .first();
       const hasNameField = await nameFieldBtn.isVisible().catch(() => false);
 
@@ -200,23 +203,23 @@ export class PdfSigningPage {
 
         // NameAdoptionModal should open
         await this.page
-          .locator('h3', { hasText: 'Enter Your Name' })
+          .locator('h3', { hasText: /Enter Your Name|Enter Text/ })
           .waitFor({ timeout: 10_000 });
 
         // Fill the name input and adopt
         await this.page
           .locator('input[placeholder="Your full name"]')
           .fill(options.commonName);
-        await this.page.getByText('Adopt Name').click();
+        await this.page.getByText('Apply Name').click();
 
         // Wait for modal to close
         await expect(
-          this.page.locator('h3', { hasText: 'Enter Your Name' })
+          this.page.locator('h3', { hasText: /Enter Your Name|Enter Text/ })
         ).not.toBeVisible({ timeout: 10_000 });
       }
 
-      // "Continue to Sign" should now be enabled — click it
-      const continueBtn = this.page.getByText('Continue to Sign');
+      // "Continue" should now be enabled — click it
+      const continueBtn = this.page.getByRole('button', { name: 'Continue', exact: true });
       await expect(continueBtn).toBeEnabled({ timeout: 5_000 });
       await continueBtn.click();
 
@@ -288,13 +291,10 @@ export class PdfSigningPage {
    * Signer: Return the signed document to the owner.
    */
   async returnToOwner() {
-    await this.expandSection('Signed - Return to Owner');
-
     const returnBtn = this.page
-      .locator('.card')
-      .filter({ hasText: 'Signed - Return to Owner' })
       .getByText('Return to Owner', { exact: true })
       .first();
+    await returnBtn.waitFor({ timeout: 15_000 });
     await returnBtn.click();
 
     // Wait briefly for the async return to complete
@@ -309,14 +309,10 @@ export class PdfSigningPage {
     valid: boolean;
     signerName: string;
   }> {
-    // Expand the Signed Documents section and click Verify
-    await this.expandSection('Signed Documents');
-
     const verifyBtn = this.page
-      .locator('.card')
-      .filter({ hasText: 'Signed Documents' })
       .getByText('Verify', { exact: true })
       .first();
+    await verifyBtn.waitFor({ timeout: 15_000 });
     await verifyBtn.click();
 
     // Wait for verify modal

@@ -84,10 +84,12 @@ export class ConnectionsPage {
   async exchangeKeys() {
     await this.page.getByText('Exchange Keys', { exact: true }).click();
 
-    // Wait for "Awaiting Peer" status or button to appear
-    await expect(
-      this.page.getByRole('button', { name: 'Awaiting Peer' })
-    ).toBeVisible({ timeout: 30_000 });
+    // KEM exchange may auto-accept (go straight to Ready) or show Awaiting Peer
+    // Wait for the success message toast or the status to change
+    await this.page.waitForTimeout(3_000);
+    const ready = this.page.getByText('Ready').first();
+    const awaiting = this.page.getByText('Awaiting Peer').first();
+    await expect(ready.or(awaiting)).toBeVisible({ timeout: 30_000 });
   }
 
   /**
