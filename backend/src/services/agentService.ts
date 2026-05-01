@@ -404,7 +404,7 @@ async function initializeAgent(
     const ethConfig = new KanonModuleConfig({
         networks: [
             {
-                network: "testnet",
+                network: "besu",
                 rpcUrl: ethereumRpcUrl || "",
                 privateKey: ethereumPrivateKey || "",
             },
@@ -614,7 +614,7 @@ const setupConnectionListener = async (agent: AgentWithDidComm) => {
             const goal = oobRecord?.outOfBandInvitation.goalCode
             console.log(`Goal: ${goal}`)
             if (goal === "Get Student ID Card credential") {
-                const credentialDefinitionId = "did:kanon:testnet:351e178d-dd03-40e0-899c-65fe9b86ab66/resources/c51c0dc0-4719-48f2-b5f2-8969c87ef9e0"
+                const credentialDefinitionId = process.env.STUDENT_CRED_DEF_ID || ""
                 const credentialDefinition = await _workerAgent.modules.anoncreds.getCredentialDefinition(credentialDefinitionId);
                 if (!credentialDefinition) {
                     new Error("Credential definition not found")
@@ -667,7 +667,7 @@ const setupConnectionListener = async (agent: AgentWithDidComm) => {
                 })
             }
             else if (goal === "Get Professional License credential") {
-                const credentialDefinitionId = "did:kanon:testnet:351e178d-dd03-40e0-899c-65fe9b86ab66/resources/3c62ca2b-b4be-4f9a-b5d8-df4e8e404433"
+                const credentialDefinitionId = process.env.LAWYER_CRED_DEF_ID || ""
                 const credentialDefinition = await _workerAgent.modules.anoncreds.getCredentialDefinition(credentialDefinitionId);
                 if (!credentialDefinition) {
                     new Error("Credential definition not found")

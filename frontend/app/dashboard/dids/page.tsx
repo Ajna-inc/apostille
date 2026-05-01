@@ -25,7 +25,7 @@ export default function DIDsPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const availableMethods = [
-    { value: 'kanon', label: 'Kanon', description: 'Kanon DID method' },
+    { value: 'kanon', label: 'Kanon (Besu)', description: 'Kanon DID on private Besu chain' },
     { value: 'key', label: 'Key', description: 'Simple key-based DID method' },
   ];
 

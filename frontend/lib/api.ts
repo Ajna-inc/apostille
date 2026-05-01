@@ -311,7 +311,7 @@ export const schemaApi = {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/schemas/schemaId?${params.toString()}`);
   },
 
-  create: async (name: string, version: string, attributes: string[], provider: string = 'cheqd', issuerId?: string) => {
+  create: async (name: string, version: string, attributes: string[], provider: string = 'kanon', issuerId?: string) => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/schemas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1545,6 +1545,13 @@ export const oid4vciApi = {
    */
   getOfferStatus: async (offerId: string) => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/oid4vci/offers/${offerId}/status`);
+  },
+
+  /**
+   * Get the captured wire trace for an offer (RI debugging aid)
+   */
+  getWireTrace: async (offerId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/oid4vci/offers/${offerId}/wire-trace`);
   },
 };
 

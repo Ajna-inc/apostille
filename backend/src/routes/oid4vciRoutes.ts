@@ -9,6 +9,12 @@ import { cacheStores } from '../services/redis/cacheStore'
 import { getMdocCertificateConfig, getIssuerCertificate, pemToBase64Der } from '../config/mdlCertificates'
 import { Kms, Mdoc } from '@credo-ts/core'
 import { transformPrivateKeyToPrivateJwk } from '@credo-ts/askar'
+import {
+  createAnonCredsOidcOffer,
+  generateAnonCredsNonce,
+  verifyAndIssueAnonCredsCredential,
+} from '../services/oid4vci/anonCredsIssuance'
+import type { AnonCredsCredentialOffer } from '@credo-ts/anoncreds'
 
 const router = Router()
 
@@ -17,6 +23,13 @@ const apiBaseUrl = process.env.API_URL || process.env.PUBLIC_URL || 'http://loca
 const SD_JWT_ISSUER_DID_METHOD = (process.env.SD_JWT_ISSUER_DID_METHOD || 'key').toLowerCase()
 
 // Pending offer structure for OID4VCI flow
+interface WireTrace {
+  offer?: unknown
+  tokenResponse?: unknown
+  credentialRequest?: unknown
+  credentialResponse?: unknown
+}
+
 interface PendingOffer {
   id: string
   tenantId: string
@@ -27,9 +40,14 @@ interface PendingOffer {
   txCode?: string
   accessToken?: string
   cNonce?: string
-  status: 'pending' | 'token_issued' | 'credential_issued' | 'expired'
-  format?: 'vc+sd-jwt' | 'mso_mdoc'  // Credential format
+  status: 'pending' | 'token_issued' | 'credential_request_received' | 'credential_issued' | 'expired'
+  format?: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds'  // Credential format
   doctype?: string  // For mdoc: e.g., 'org.iso.18013.5.1.mDL'
+  // AnonCreds-only fields (per docs/specs/anoncreds-oid4vci-profile.md)
+  credDefId?: string
+  anoncredsOffer?: AnonCredsCredentialOffer
+  revRegId?: string
+  wireTrace?: WireTrace
   createdAt: string  // ISO string for serialization
   expiresAt: string  // ISO string for serialization
 }
@@ -82,6 +100,43 @@ function generateCode(length: number = 32): string {
 }
 
 /**
+ * Hydrate a PendingOffer object from an oid4vci_pending_offers DB row,
+ * including AnonCreds-specific columns when present. Centralised so all
+ * call-sites pick up new columns automatically.
+ */
+function hydrateOfferFromRow(row: any): PendingOffer {
+  const parseJson = (value: any): any => {
+    if (value === null || value === undefined) return undefined
+    if (typeof value === 'object') return value
+    try {
+      return JSON.parse(value)
+    } catch {
+      return undefined
+    }
+  }
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    credentialDefinitionId: row.credential_definition_id,
+    credentialConfigurationId: row.credential_configuration_id,
+    credentialData: row.credential_data,
+    preAuthorizedCode: row.pre_authorized_code,
+    txCode: row.tx_code ?? undefined,
+    accessToken: row.access_token ?? undefined,
+    cNonce: row.c_nonce ?? undefined,
+    status: row.status,
+    format: row.format ?? undefined,
+    doctype: row.doctype ?? undefined,
+    credDefId: row.cred_def_id ?? undefined,
+    anoncredsOffer: parseJson(row.anoncreds_offer),
+    revRegId: row.rev_reg_id ?? undefined,
+    wireTrace: parseJson(row.wire_trace),
+    createdAt: new Date(row.created_at).toISOString(),
+    expiresAt: new Date(row.expires_at).toISOString(),
+  }
+}
+
+/**
  * Create a credential offer
  *
  * POST /api/oid4vci/offers
@@ -116,8 +171,9 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
     const txCode = txCodeRequired ? generateCode(6).substring(0, 6).toUpperCase() : undefined
 
     // Get credential definition format and doctype from database
-    let credFormat: 'vc+sd-jwt' | 'mso_mdoc' = 'vc+sd-jwt'
+    let credFormat: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds' = 'vc+sd-jwt'
     let doctype: string | undefined
+    let supportsRevocation = false
 
     try {
       const credDefResult = await db.query(
@@ -126,11 +182,37 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
       )
       if (credDefResult.rows.length > 0) {
         const row = credDefResult.rows[0]
-        credFormat = row.format === 'mso_mdoc' ? 'mso_mdoc' : 'vc+sd-jwt'
+        if (row.format === 'mso_mdoc') credFormat = 'mso_mdoc'
+        else if (row.format === 'anoncreds') credFormat = 'anoncreds'
+        else credFormat = 'vc+sd-jwt'
         doctype = row.doctype
       }
     } catch (dbError: any) {
       console.warn('Failed to get credential definition format:', dbError.message)
+    }
+
+    // For AnonCreds, mint the credential offer object (nonce + key_correctness_proof)
+    // up front so it can be validated against the holder's blinded request later.
+    let anoncredsOffer: AnonCredsCredentialOffer | undefined
+    if (credFormat === 'anoncreds') {
+      try {
+        const agent = await getAgent({ tenantId })
+        anoncredsOffer = await createAnonCredsOidcOffer(agent, credentialDefinitionId)
+
+        // Detect revocation support so we can advertise it.
+        try {
+          const credDef = await agent.modules.anoncreds.getCredentialDefinition(credentialDefinitionId)
+          supportsRevocation = !!credDef?.credentialDefinition?.value?.revocation
+        } catch (e: any) {
+          console.warn('AnonCreds revocation detection skipped:', e.message)
+        }
+      } catch (anoncredsError: any) {
+        console.error('Failed to create AnonCreds offer:', anoncredsError)
+        return res.status(500).json({
+          error: 'server_error',
+          error_description: `Failed to create AnonCreds offer: ${anoncredsError.message}`,
+        })
+      }
     }
 
     // Create the pending offer
@@ -147,6 +229,9 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
       status: 'pending',
       format: credFormat,
       doctype,
+      credDefId: credFormat === 'anoncreds' ? credentialDefinitionId : undefined,
+      anoncredsOffer,
+      wireTrace: anoncredsOffer ? { offer: anoncredsOffer } : undefined,
       createdAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
     }
@@ -162,12 +247,17 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
       await db.query(`
         INSERT INTO oid4vci_pending_offers (
           id, tenant_id, credential_definition_id, credential_configuration_id,
-          credential_data, pre_authorized_code, tx_code, status, format, doctype, expires_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          credential_data, pre_authorized_code, tx_code, status, format, doctype,
+          cred_def_id, anoncreds_offer, wire_trace, expires_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       `, [
         offerId, tenantId, credentialDefinitionId, credentialConfigurationId,
         JSON.stringify(credentialData), preAuthorizedCode, txCode, 'pending',
-        credFormat, doctype, offer.expiresAt
+        credFormat, doctype,
+        offer.credDefId ?? null,
+        offer.anoncredsOffer ? JSON.stringify(offer.anoncredsOffer) : null,
+        offer.wireTrace ? JSON.stringify(offer.wireTrace) : null,
+        offer.expiresAt,
       ])
     } catch (dbError: any) {
       console.warn('Failed to persist offer to database (table may not exist yet):', dbError.message)
@@ -179,6 +269,11 @@ router.post('/offers', auth, async (req: Request, res: Response) => {
       offerUri: credentialOfferUri,
       txCode: txCode || undefined,
       expiresAt: offer.expiresAt,
+      format: credFormat,
+      ...(credFormat === 'anoncreds' && {
+        anoncredsOffer,
+        revocationSupported: supportsRevocation,
+      }),
     })
   } catch (error: any) {
     console.error('Error creating credential offer:', error)
@@ -301,20 +396,7 @@ router.post('/:tenantId/token', async (req: Request, res: Response) => {
         )
         if (result.rows.length > 0) {
           const row = result.rows[0]
-          offer = {
-            id: row.id,
-            tenantId: row.tenant_id,
-            credentialDefinitionId: row.credential_definition_id,
-            credentialConfigurationId: row.credential_configuration_id,
-            credentialData: row.credential_data,
-            preAuthorizedCode: row.pre_authorized_code,
-            txCode: row.tx_code,
-            accessToken: row.access_token,
-            cNonce: row.c_nonce,
-            status: row.status,
-            createdAt: new Date(row.created_at).toISOString(),
-            expiresAt: new Date(row.expires_at).toISOString(),
-          }
+          offer = hydrateOfferFromRow(row)
           await pendingOffers.set(offer.id, offer)
         }
       } catch (dbError) {
@@ -353,23 +435,49 @@ router.post('/:tenantId/token', async (req: Request, res: Response) => {
       })
     }
 
-    // Generate access token and c_nonce
+    // Generate access token. For AnonCreds offers, the c_nonce serves as the
+    // AnonCreds credential request nonce — it must be a decimal string of at
+    // least 80 bits (spec §5.2). For other formats keep the existing
+    // base64url shape.
     const accessToken = generateCode(32)
-    const cNonce = generateCode(16)
+    const cNonce = offer.format === 'anoncreds' ? generateAnonCredsNonce() : generateCode(16)
+
+    // For AnonCreds, the c_nonce we hand out is the same one embedded in the
+    // anoncredsOffer object — overwrite both so they stay in sync.
+    if (offer.format === 'anoncreds' && offer.anoncredsOffer) {
+      offer.anoncredsOffer = { ...offer.anoncredsOffer, nonce: cNonce }
+    }
 
     // Update offer
     offer.accessToken = accessToken
     offer.cNonce = cNonce
     offer.status = 'token_issued'
+    if (offer.wireTrace) {
+      offer.wireTrace.tokenResponse = {
+        access_token: '<redacted>',
+        token_type: 'Bearer',
+        expires_in: 300,
+        c_nonce: cNonce,
+        c_nonce_expires_in: 300,
+      }
+    }
     await pendingOffers.set(offer.id, offer)
 
     // Update database
     try {
       await db.query(
         `UPDATE oid4vci_pending_offers
-         SET access_token = $1, c_nonce = $2, status = 'token_issued'
+         SET access_token = $1, c_nonce = $2, status = 'token_issued',
+             anoncreds_offer = COALESCE($4, anoncreds_offer),
+             wire_trace = COALESCE($5, wire_trace)
          WHERE id = $3`,
-        [accessToken, cNonce, offer.id]
+        [
+          accessToken,
+          cNonce,
+          offer.id,
+          offer.anoncredsOffer ? JSON.stringify(offer.anoncredsOffer) : null,
+          offer.wireTrace ? JSON.stringify(offer.wireTrace) : null,
+        ]
       )
     } catch (dbError) {
       console.warn('Failed to update offer in database:', dbError)
@@ -381,6 +489,15 @@ router.post('/:tenantId/token', async (req: Request, res: Response) => {
       expires_in: 300, // 5 minutes
       c_nonce: cNonce,
       c_nonce_expires_in: 300,
+      // Non-standard: when format=anoncreds, surface the issuer-minted offer
+      // object (schema_id, cred_def_id, key_correctness_proof, nonce). The
+      // wallet needs this to build a blinded link-secret commitment per
+      // docs/specs/anoncreds-oid4vci-profile.md §5–§6. The nonce is already
+      // synced with c_nonce above. Wallets that don't speak this profile
+      // ignore the field harmlessly.
+      ...(offer.format === 'anoncreds' && offer.anoncredsOffer
+        ? { anoncreds_offer: offer.anoncredsOffer }
+        : {}),
     })
   } catch (error: any) {
     console.error('Error in token endpoint:', error)
@@ -434,21 +551,7 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
           [accessToken, tenantId]
         )
         if (result.rows.length > 0) {
-          const row = result.rows[0]
-          offer = {
-            id: row.id,
-            tenantId: row.tenant_id,
-            credentialDefinitionId: row.credential_definition_id,
-            credentialConfigurationId: row.credential_configuration_id,
-            credentialData: row.credential_data,
-            preAuthorizedCode: row.pre_authorized_code,
-            txCode: row.tx_code,
-            accessToken: row.access_token,
-            cNonce: row.c_nonce,
-            status: row.status,
-            createdAt: new Date(row.created_at).toISOString(),
-            expiresAt: new Date(row.expires_at).toISOString(),
-          }
+          offer = hydrateOfferFromRow(result.rows[0])
         }
       } catch (dbError) {
         console.warn('Database query failed:', dbError)
@@ -468,6 +571,90 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         error_description: 'Credential has already been issued for this offer'
       })
     }
+
+    // ---- AnonCreds format branch (spec §6) ----
+    if ((offer.format ?? format) === 'anoncreds') {
+      const proofType = proof?.proof_type
+      if (proofType !== 'anoncreds') {
+        return res.status(400).json({
+          error: 'invalid_proof',
+          error_description: `proof_type must be 'anoncreds' for anoncreds format (got '${proofType ?? 'undefined'}')`,
+        })
+      }
+      const acProof = proof?.anoncreds
+      if (!acProof || !acProof.blinded_ms || !acProof.blinded_ms_correctness_proof || !acProof.cred_def_id) {
+        return res.status(400).json({
+          error: 'invalid_proof',
+          error_description: 'AnonCreds proof must include cred_def_id, blinded_ms, blinded_ms_correctness_proof and nonce',
+        })
+      }
+      if (!offer.anoncredsOffer) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'No AnonCreds offer recorded for this session',
+        })
+      }
+
+      // Mark that we received the request before doing the (potentially
+      // slow) crypto so the studio UI can react in real-time.
+      offer.status = 'credential_request_received'
+      if (offer.wireTrace) offer.wireTrace.credentialRequest = acProof
+      await pendingOffers.set(offer.id, offer)
+      try {
+        await db.query(
+          `UPDATE oid4vci_pending_offers
+           SET status = 'credential_request_received', wire_trace = $2
+           WHERE id = $1`,
+          [offer.id, offer.wireTrace ? JSON.stringify(offer.wireTrace) : null]
+        )
+      } catch (dbError) {
+        console.warn('Failed to update offer status in database:', dbError)
+      }
+
+      try {
+        const agent = await getAgent({ tenantId })
+        const { credential } = await verifyAndIssueAnonCredsCredential(agent, {
+          storedOffer: offer.anoncredsOffer,
+          credentialRequest: acProof,
+          attributeValues: offer.credentialData,
+          revocationRegistryDefinitionId: offer.revRegId,
+        })
+
+        const newCNonceForNext = generateAnonCredsNonce()
+        const responseBody = {
+          format: 'anoncreds',
+          credential,
+          c_nonce: newCNonceForNext,
+          c_nonce_expires_in: 300,
+        }
+
+        offer.status = 'credential_issued'
+        offer.cNonce = newCNonceForNext
+        if (offer.wireTrace) offer.wireTrace.credentialResponse = responseBody
+        await pendingOffers.set(offer.id, offer)
+
+        try {
+          await db.query(
+            `UPDATE oid4vci_pending_offers
+             SET status = 'credential_issued', issued_at = NOW(),
+                 c_nonce = $2, wire_trace = $3
+             WHERE id = $1`,
+            [offer.id, newCNonceForNext, offer.wireTrace ? JSON.stringify(offer.wireTrace) : null]
+          )
+        } catch (dbError) {
+          console.warn('Failed to update offer status in database:', dbError)
+        }
+
+        return res.json(responseBody)
+      } catch (acError: any) {
+        console.error('Failed to issue AnonCreds credential:', acError)
+        return res.status(400).json({
+          error: 'invalid_proof',
+          error_description: `AnonCreds issuance failed: ${acError.message}`,
+        })
+      }
+    }
+    // ---- end AnonCreds branch ----
 
     // Get schema attributes for this credential
     // First try to get from our OID4VC credential definitions table
@@ -827,6 +1014,105 @@ router.get('/trusted-certificates', auth, async (req: Request, res: Response) =>
       error: 'Failed to get trusted certificates',
       message: error.message
     })
+  }
+})
+
+/**
+ * Get the captured wire-trace for an offer (RI / debugging aid).
+ *
+ * GET /api/oid4vci/offers/:offerId/wire-trace
+ *
+ * Returns the JSON payloads observed at each step of the OID4VCI flow:
+ * offer object, token response, credential request, credential response.
+ * Used by the studio's WirePayloadInspector — vendors can diff their bytes
+ * against what we recorded.
+ */
+router.get('/offers/:offerId/wire-trace', auth, async (req: Request, res: Response) => {
+  try {
+    const { offerId } = req.params
+    const tenantId = req.user?.tenantId
+    if (!tenantId) {
+      return res.status(401).json({ error: 'unauthorized' })
+    }
+
+    let offer = await pendingOffers.get(offerId)
+    if (!offer || offer.tenantId !== tenantId) {
+      try {
+        const result = await db.query(
+          'SELECT * FROM oid4vci_pending_offers WHERE id = $1 AND tenant_id = $2',
+          [offerId, tenantId]
+        )
+        if (result.rows.length > 0) {
+          offer = hydrateOfferFromRow(result.rows[0])
+        }
+      } catch {
+        /* table may not yet exist */
+      }
+    }
+    if (!offer) {
+      return res.status(404).json({ error: 'not_found' })
+    }
+
+    return res.json({
+      offerId,
+      format: offer.format,
+      status: offer.status,
+      wireTrace: offer.wireTrace ?? null,
+    })
+  } catch (error: any) {
+    console.error('Error getting wire trace:', error)
+    return res.status(500).json({ error: 'server_error', error_description: error.message })
+  }
+})
+
+/**
+ * OID4VCI Nonce Endpoint (per OID4VCI 1.0 §8 / spec §5.1)
+ *
+ * POST /issuers/:tenantId/nonce
+ *
+ * Returns a fresh c_nonce. For AnonCreds-tagged sessions the nonce is a
+ * decimal string ≥ 80 bits. Other sessions get the existing base64url
+ * nonce. Public endpoint — wallets call this without auth.
+ */
+router.post('/:tenantId/nonce', async (req: Request, res: Response) => {
+  try {
+    const accessToken = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+    const tenantId = req.params.tenantId
+
+    let offer: PendingOffer | null = null
+    if (accessToken) {
+      offer = await pendingOffers.findOne(
+        (o) => o.accessToken === accessToken && o.tenantId === tenantId
+      )
+    }
+
+    const cNonce = offer?.format === 'anoncreds'
+      ? generateAnonCredsNonce()
+      : generateCode(16)
+
+    if (offer) {
+      offer.cNonce = cNonce
+      if (offer.format === 'anoncreds' && offer.anoncredsOffer) {
+        offer.anoncredsOffer = { ...offer.anoncredsOffer, nonce: cNonce }
+      }
+      await pendingOffers.set(offer.id, offer)
+      try {
+        await db.query(
+          `UPDATE oid4vci_pending_offers
+           SET c_nonce = $2,
+               anoncreds_offer = COALESCE($3, anoncreds_offer)
+           WHERE id = $1`,
+          [offer.id, cNonce, offer.anoncredsOffer ? JSON.stringify(offer.anoncredsOffer) : null]
+        )
+      } catch (dbError) {
+        console.warn('Failed to persist refreshed nonce:', dbError)
+      }
+    }
+
+    return res.json({ c_nonce: cNonce, c_nonce_expires_in: 300 })
+  } catch (error: any) {
+    console.error('Error in nonce endpoint:', error)
+    return res.status(500).json({ error: 'server_error', error_description: 'Failed to generate nonce' })
   }
 })
 

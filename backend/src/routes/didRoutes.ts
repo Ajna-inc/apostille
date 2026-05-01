@@ -70,7 +70,7 @@ router.route('/')
                         type: 'EcdsaSecp256k1VerificationKey2019'
                     }
                 },
-                network: 'testnet'
+                network: 'besu'
                 
             };
         } else {

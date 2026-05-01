@@ -180,7 +180,7 @@ export function createIssuerRoutes(): Router {
           SELECT cd.*, cd.overlay
           FROM credential_definitions cd
           WHERE cd.tenant_id = $1
-            AND cd.format IN ('oid4vc', 'mso_mdoc')
+            AND cd.format IN ('oid4vc', 'mso_mdoc', 'anoncreds')
         `, [tenantId])
 
         console.log(`[OID4VCI Metadata] Found ${result.rows.length} credential definitions for tenant ${tenantId}`)
@@ -211,7 +211,60 @@ export function createIssuerRoutes(): Router {
             // Build the credential configuration based on format
             const configId = credDef.tag || credDef.credential_definition_id || credDef.id
 
-            if (credDef.format === 'mso_mdoc') {
+            if (credDef.format === 'anoncreds') {
+              // Build AnonCreds configuration per docs/specs/anoncreds-oid4vci-profile.md §3.
+              // Schema metadata is fetched lazily — fall back to attribute names from the row.
+              const attrNames: string[] = credDef.schema_attributes
+                ? (Array.isArray(credDef.schema_attributes)
+                    ? credDef.schema_attributes
+                    : JSON.parse(credDef.schema_attributes || '[]'))
+                : []
+
+              const claims: Record<string, any> = {}
+              for (const attr of attrNames) {
+                claims[attr] = { display: [{ name: attr, locale: 'en' }] }
+              }
+
+              credentialConfigurations[configId] = {
+                format: 'anoncreds',
+                scope: configId,
+                cryptographic_binding_methods_supported: ['link_secret'],
+                credential_signing_alg_values_supported: ['CLSignature2019'],
+                proof_types_supported: {
+                  anoncreds: {
+                    proof_signing_alg_values_supported: ['CLSignature2019'],
+                  },
+                },
+                anoncreds: {
+                  schema: {
+                    id: credDef.schema_id,
+                    name: meta.schemaName || configId,
+                    version: meta.schemaVersion || '1.0',
+                    attr_names: attrNames,
+                  },
+                  credential_definition: {
+                    id: credDef.credential_definition_id,
+                    schema_id: credDef.schema_id,
+                    type: 'CL',
+                    tag: credDef.tag,
+                  },
+                  // Revocation flag is best-effort; the exact rev_reg_id is
+                  // filled in by the issuer at issuance time.
+                  revocation: {
+                    supported: !!meta.supportRevocation,
+                  },
+                },
+                display: [{
+                  name: meta.name || configId,
+                  description: meta.description,
+                  background_color: branding.primary_background_color,
+                  text_color: branding.text_color || '#FFFFFF',
+                  logo: branding.logo ? { uri: branding.logo, alt_text: meta.name || configId } : undefined,
+                  locale: 'en',
+                }],
+                claims,
+              }
+            } else if (credDef.format === 'mso_mdoc') {
               // Build mso_mdoc configuration
               const doctype = credDef.doctype || 'org.iso.18013.5.1.mDL'
               const namespaces = credDef.namespaces || {}

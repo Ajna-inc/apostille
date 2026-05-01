@@ -200,7 +200,7 @@ async function createSchemaAndCredDef(
             const didResult = await agent.dids.create({
                 method: 'kanon',
                 options: {
-                    network: 'testnet',
+                    network: 'besu',
                     methodSpecificIdAlgo: 'uuid'
                 }
             });
@@ -216,11 +216,11 @@ async function createSchemaAndCredDef(
         // Register schema
         console.log(`[ESSISetup] Registering schema ${schemaDef.name} v${schemaDef.version}...`);
         const schemaResult = await agent.modules.anoncreds.registerSchema({
-            network: 'testnet',
+            network: 'besu',
             options: {
                 methodSpecificIdAlgo: 'uuid',
                 method: 'kanon',
-                network: 'testnet'
+                network: 'besu'
             },
             schema: {
                 attrNames: schemaDef.attributes,
@@ -242,7 +242,7 @@ async function createSchemaAndCredDef(
         console.log(`[ESSISetup] Registering credential definition for ${schemaDef.name}...`);
         const credDefResult = await agent.modules.anoncreds.registerCredentialDefinition({
             options: {
-                network: 'testnet',
+                network: 'besu',
                 methodSpecificIdAlgo: 'uuid'
             },
             credentialDefinition: {

@@ -5,8 +5,8 @@ export function validateSpecCompliantPayload(
   didDocument: DidDocument
 ): SpecValidationResult {
 
-  if (!didDocument.id && !didDocument.id.startsWith("did:cheqd:"))
-    return { valid: false, error: "id is required" };
+  if (!didDocument.id || !didDocument.id.startsWith("did:kanon:"))
+    return { valid: false, error: "id is required and must be a did:kanon DID" };
 
 
   if (!didDocument.verificationMethod)

@@ -117,7 +117,7 @@ export class EthereumLedgerService {
 
   async getDIDDocument(
     did: string,
-    networkName: string = "mainnet"
+    networkName: string = "besu"
   ): Promise<DidDocument | undefined> {
     const { signer } = await this.getProviderAndSigner(networkName);
     const contract = new ethers.Contract(
@@ -155,7 +155,7 @@ export class EthereumLedgerService {
     return didDocument;
   }
 
-  async getDID(did: string, networkName: string = "mainnet") {
+  async getDID(did: string, networkName: string = "besu") {
     try {
       const { provider } = await this.getProviderAndSigner(networkName);
       
@@ -182,7 +182,7 @@ export class EthereumLedgerService {
     }
   }
 
-  async getSchema(schemaId: string, networkName: string = "mainnet") {
+  async getSchema(schemaId: string, networkName: string = "besu") {
     console.log(schemaId, "schemaId");
     try {
       const { provider } = await this.getProviderAndSigner(networkName);
@@ -298,7 +298,7 @@ export class EthereumLedgerService {
   async addApprovedIssuer(
     schemaId: string,
     issuer: string,
-    networkName: string = "mainnet"
+    networkName: string = "besu"
   ) {
     const { signer } = await this.getProviderAndSigner(networkName);
     
@@ -342,7 +342,7 @@ export class EthereumLedgerService {
     schemaId: string,
     issuer: string,
     detailsJson: string,
-    networkName: string = "mainnet"
+    networkName: string = "besu"
   ) {
     const { signer } = await this.getProviderAndSigner(networkName);
     
@@ -396,7 +396,7 @@ export class EthereumLedgerService {
 
   async getCredentialDefinition(
     credDefId: string,
-    networkName: string = "testnet"
+    networkName: string = "besu"
   ) {
     try {
       const { provider } = await this.getProviderAndSigner(networkName);
@@ -433,7 +433,7 @@ export class EthereumLedgerService {
     issuanceDate: string,
     expiryDate: string,
     metadata: string,
-    networkName: string = "mainnet"
+    networkName: string = "besu"
   ) {
     const { signer } = await this.getProviderAndSigner(networkName);
     const contract = new ethers.Contract(
@@ -452,7 +452,7 @@ export class EthereumLedgerService {
     );
   }
 
-  async revokeCredential(credId: string, networkName: string = "mainnet") {
+  async revokeCredential(credId: string, networkName: string = "besu") {
     const { signer } = await this.getProviderAndSigner(networkName);
     
     try {
@@ -487,7 +487,7 @@ export class EthereumLedgerService {
     }
   }
 
-  async isCredentialRevoked(credId: string, networkName: string = "mainnet") {
+  async isCredentialRevoked(credId: string, networkName: string = "besu") {
     try {
       const { provider } = await this.getProviderAndSigner(networkName);
       
@@ -518,7 +518,7 @@ export class EthereumLedgerService {
     did: string,
     context: string,
     metadata: string,
-    networkName: string = "mainnet"
+    networkName: string = "besu"
   ) {
     const { signer } = await this.getProviderAndSigner(networkName);
     
@@ -562,7 +562,7 @@ export class EthereumLedgerService {
     did: string,
     context: string,
     metadata: string,
-    networkName: string = "mainnet"
+    networkName: string = "besu"
   ) {
     const { signer } = await this.getProviderAndSigner(networkName);
     

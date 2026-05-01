@@ -11,6 +11,8 @@ import {
 } from '../../../lib/api';
 import { QRCodeSVG } from 'qrcode.react';
 import MdlIssuanceForm from '../../components/mdoc/MdlIssuanceForm';
+import AnonCredsIssuanceForm from '../../components/oid4vci/AnonCredsIssuanceForm';
+import WirePayloadInspector from '../../components/oid4vci/WirePayloadInspector';
 import Link from 'next/link';
 
 interface CredentialDefinition {
@@ -40,7 +42,8 @@ interface CredentialOffer {
   offerUri: string;
   txCode?: string;
   expiresAt: string;
-  status: 'pending' | 'token_issued' | 'credential_issued' | 'expired';
+  status: 'pending' | 'token_issued' | 'credential_request_received' | 'credential_issued' | 'expired';
+  format?: CredentialFormat;
 }
 
 export default function OID4VCIPage() {
@@ -70,9 +73,11 @@ export default function OID4VCIPage() {
         const response = await credentialDefinitionApi.getAll();
         const allCredDefs = response.credentialDefinitions || [];
 
-        // Filter to show OID4VC and mdoc credential definitions (formats that support QR issuance)
+        // Filter to show formats that support QR-based OID4VCI issuance
+        // (oid4vc / mso_mdoc / anoncreds — see docs/specs/anoncreds-oid4vci-profile.md).
         const qrIssuableCredDefs = allCredDefs.filter(
-          (cd: CredentialDefinition) => cd.format === 'oid4vc' || cd.format === 'mso_mdoc'
+          (cd: CredentialDefinition) =>
+            cd.format === 'oid4vc' || cd.format === 'mso_mdoc' || cd.format === 'anoncreds'
         );
 
         setCredDefs(qrIssuableCredDefs);
@@ -162,6 +167,7 @@ export default function OID4VCIPage() {
           txCode: response.txCode,
           expiresAt: response.expiresAt,
           status: 'pending',
+          format: response.format ?? selectedCredDef.format,
         });
 
         // Start polling for status updates
@@ -201,6 +207,8 @@ export default function OID4VCIPage() {
         return <span className="badge badge-warning">Pending</span>;
       case 'token_issued':
         return <span className="badge badge-primary">Token Issued</span>;
+      case 'credential_request_received':
+        return <span className="badge badge-primary">Request Received</span>;
       case 'credential_issued':
         return <span className="badge badge-success">Credential Issued</span>;
       case 'expired':
@@ -314,6 +322,14 @@ export default function OID4VCIPage() {
               </div>
             </div>
           </div>
+
+          {/* Wire payload inspector — RI value-add. Always rendered; the
+              AnonCreds payloads (blinded_ms / blind signature) are the most
+              interesting target for vendor diff comparisons. */}
+          <WirePayloadInspector
+            offerId={currentOffer.offerId}
+            status={currentOffer.status}
+          />
         </div>
       ) : credDefs.length === 0 ? (
         /* Empty State */
@@ -356,20 +372,28 @@ export default function OID4VCIPage() {
               required
             >
               <option value="">Select a credential definition</option>
-              {credDefs.map((cd) => (
-                <option key={cd.credentialDefinitionId} value={cd.credentialDefinitionId}>
-                  [{cd.format === 'mso_mdoc' ? 'mDL/mdoc' : 'SD-JWT'}] {cd.overlay?.meta?.name || cd.tag}
-                </option>
-              ))}
+              {credDefs.map((cd) => {
+                const formatLabel =
+                  cd.format === 'mso_mdoc' ? 'mDL/mdoc'
+                  : cd.format === 'anoncreds' ? 'AnonCreds'
+                  : 'SD-JWT';
+                return (
+                  <option key={cd.credentialDefinitionId} value={cd.credentialDefinitionId}>
+                    [{formatLabel}] {cd.overlay?.meta?.name || cd.tag}
+                  </option>
+                );
+              })}
             </select>
             {selectedCredDef && (
               <div className="mt-2 flex items-center gap-2">
                 <span className={`badge ${
-                  selectedCredDef.format === 'mso_mdoc'
-                    ? 'badge-success'
-                    : 'badge-primary'
+                  selectedCredDef.format === 'mso_mdoc' ? 'badge-success'
+                  : selectedCredDef.format === 'anoncreds' ? 'badge-warning'
+                  : 'badge-primary'
                 }`}>
-                  {selectedCredDef.format === 'mso_mdoc' ? 'mDL/mdoc' : 'SD-JWT VC'}
+                  {selectedCredDef.format === 'mso_mdoc' ? 'mDL/mdoc'
+                    : selectedCredDef.format === 'anoncreds' ? 'AnonCreds (CL)'
+                    : 'SD-JWT VC'}
                 </span>
                 {selectedCredDef.format === 'mso_mdoc' && selectedCredDef.doctype && (
                   <span className="text-xs text-text-tertiary font-mono">
@@ -381,7 +405,7 @@ export default function OID4VCIPage() {
           </div>
 
           {/* Credential Data Fields - SD-JWT VC format */}
-          {selectedCredDef?.format !== 'mso_mdoc' && selectedCredDef?.schemaAttributes && selectedCredDef.schemaAttributes.length > 0 && (
+          {selectedCredDef?.format === 'oid4vc' && selectedCredDef?.schemaAttributes && selectedCredDef.schemaAttributes.length > 0 && (
             <div className="mb-4">
               <h3 className="text-sm font-medium text-text-secondary mb-3">Credential Attributes</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -401,6 +425,18 @@ export default function OID4VCIPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Credential Data Fields - AnonCreds format (spec §6) */}
+          {selectedCredDef?.format === 'anoncreds' && (
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-text-secondary mb-3">AnonCreds Attributes</h3>
+              <AnonCredsIssuanceForm
+                attributes={selectedCredDef.schemaAttributes || []}
+                values={credentialData}
+                onChange={setCredentialData}
+              />
             </div>
           )}
 

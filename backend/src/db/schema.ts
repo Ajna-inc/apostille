@@ -212,9 +212,13 @@ export type Oid4vciPendingOfferSchema = {
     tx_code: string | null;
     access_token: string | null;
     c_nonce: string | null;
-    status: 'pending' | 'token_issued' | 'credential_issued' | 'expired';
-    format: 'vc+sd-jwt' | 'mso_mdoc' | null;  // credential format
+    status: 'pending' | 'token_issued' | 'credential_request_received' | 'credential_issued' | 'expired';
+    format: 'vc+sd-jwt' | 'mso_mdoc' | 'anoncreds' | null;  // credential format
     doctype: string | null;  // for mdoc: e.g., 'org.iso.18013.5.1.mDL'
+    cred_def_id: string | null;             // anoncreds: credential definition id
+    anoncreds_offer: Record<string, unknown> | null;  // anoncreds: { schema_id, cred_def_id, nonce, key_correctness_proof }
+    rev_reg_id: string | null;              // anoncreds: revocation registry id
+    wire_trace: Record<string, unknown> | null;       // captured wire payloads for the inspector
     created_at: Date;
     expires_at: Date;
     issued_at: Date | null;
@@ -303,6 +307,23 @@ export async function oid4vciPendingOffersTable() {
         await client.query(`
             ALTER TABLE oid4vci_pending_offers
             ADD COLUMN IF NOT EXISTS doctype VARCHAR(255)
+        `)
+        // AnonCreds OID4VCI columns
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS cred_def_id TEXT
+        `)
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS anoncreds_offer JSONB
+        `)
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS rev_reg_id TEXT
+        `)
+        await client.query(`
+            ALTER TABLE oid4vci_pending_offers
+            ADD COLUMN IF NOT EXISTS wire_trace JSONB
         `)
 
         console.log("✅ OID4VCI pending offers table created or already exists.")

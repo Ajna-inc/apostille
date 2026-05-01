@@ -6,9 +6,9 @@ const router = Router();
 // Demo tenant ID - required for demo routes
 const DEMO_TENANT_ID = process.env.PLATFORM_TENANT_ID;
 
-// Credential definition IDs for demo
-const STUDENT_CRED_DEF_ID = "did:kanon:testnet:351e178d-dd03-40e0-899c-65fe9b86ab66/resources/c51c0dc0-4719-48f2-b5f2-8969c87ef9e0";
-const LAWYER_CRED_DEF_ID = "did:kanon:testnet:351e178d-dd03-40e0-899c-65fe9b86ab66/resources/3c62ca2b-b4be-4f9a-b5d8-df4e8e404433";
+// Credential definition IDs for demo — set via env or created dynamically by ESSIAgentSetup
+const STUDENT_CRED_DEF_ID = process.env.STUDENT_CRED_DEF_ID || "";
+const LAWYER_CRED_DEF_ID = process.env.LAWYER_CRED_DEF_ID || "";
 
 router.route('/').get(async (req: Request, res: Response) => {
     const { label, goal } = req.query;

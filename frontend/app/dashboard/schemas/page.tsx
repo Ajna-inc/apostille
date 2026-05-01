@@ -45,7 +45,7 @@ export default function SchemasPage() {
   const [schemaVersion, setSchemaVersion] = useState<string>('1.0');
   const [attributes, setAttributes] = useState<string[]>(['']);
   const [creating, setCreating] = useState<boolean>(false);
-  const [provider, setProvider] = useState<string>('cheqd');
+  const [provider, setProvider] = useState<string>('kanon');
   const [selectedSchema, setSelectedSchema] = useState<Schema | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState<boolean>(false);
   const [availableDids, setAvailableDids] = useState<Did[]>([]);
@@ -134,7 +134,7 @@ export default function SchemasPage() {
     setSchemaName('');
     setSchemaVersion('1.0');
     setAttributes(['']);
-    setProvider('cheqd');
+    setProvider('kanon');
     setSelectedIssuerId('');
     setError(null);
   };
@@ -217,7 +217,7 @@ export default function SchemasPage() {
       setSchemaName('');
       setSchemaVersion('1.0');
       setAttributes(['']);
-      setProvider('cheqd');
+      setProvider('kanon');
       setSelectedIssuerId('');
       
       closeModal();
@@ -382,8 +382,7 @@ export default function SchemasPage() {
                         className="form-select"
                         required
                       >
-                        <option value="cheqd">Cheqd</option>
-                        <option value="kanon">Kanon</option>
+                        <option value="kanon">Kanon (Besu)</option>
                       </select>
                     </div>
 
@@ -552,7 +551,7 @@ export default function SchemasPage() {
                           <p className="text-sm font-medium text-text-secondary">Provider</p>
                           <p className="mt-1">
                             <span className={`badge ${
-                              selectedSchema.methodName === 'cheqd' ? 'badge-success' : 'badge-primary'
+                              selectedSchema.methodName === 'kanon' ? 'badge-success' : 'badge-primary'
                             }`}>
                               {selectedSchema.methodName}
                             </span>

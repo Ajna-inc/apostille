@@ -63,7 +63,7 @@ export const createDemoDid = async () => {
                 type: 'EcdsaSecp256k1VerificationKey2019'
             }
         },
-        network: 'testnet'
+        network: 'besu'
 
     };
 
@@ -130,11 +130,11 @@ export const createDemoSchema = async (structure: string = "person") => {
         let issuerDid = did;
         let version = '1.0';
         const schemaOptions = {
-            network: "testnet",
+            network: "besu",
             options: {
                 methodSpecificIdAlgo: "uuid",
                 method: "kanon",
-                network: "testnet",
+                network: "besu",
             },
             schema: {
                 attrNames: attributes,
@@ -178,7 +178,7 @@ export const createDemoCredDef= async (defineStructure:any="person")=>{
         const schemaId = getSchema.schemaResult.schemaState.schemaId;
         const issuerId = getSchema.schemaResult.schemaState.schema.issuerId
         const schemaIdParts = schemaId.split(':');
-        const network = schemaIdParts.length >= 3 ? schemaIdParts[2] : 'testnet';
+        const network = schemaIdParts.length >= 3 ? schemaIdParts[2] : 'besu';
         console.log(network,178)
         console.log(schemaId,179)
         console.log(issuerId,180)

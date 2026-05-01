@@ -18,6 +18,8 @@
     "test:integration:did-schema": "jest --testPathPattern='did-schema' --runInBand",
     "test:integration:credentials": "jest --testPathPattern='credential-flow' --runInBand",
     "test:integration:oid4vc": "jest --testPathPattern='oid4vc' --runInBand",
+    "test:integration:oid4vci-anoncreds": "jest --testPathPattern='oid4vci-anoncreds' --runInBand",
+    "e2e:anoncreds-oid4vci": "ts-node --transpile-only scripts/anoncreds-oid4vci-e2e.ts",
     "test:integration:all-apis": "jest --testPathPattern='all-apis' --runInBand",
     "test:live": "TEST_API_URL=${TEST_API_URL:-http://localhost:30002} jest --testPathPattern=integration --runInBand",
     "test:live:quick": "TEST_API_URL=${TEST_API_URL:-http://localhost:30002} jest --testPathPattern='all-apis' --runInBand -t 'Quick API Health Check'",

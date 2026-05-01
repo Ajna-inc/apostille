@@ -109,11 +109,11 @@ router.route('/')
 
             // Build schema options for kanon provider
             const schemaOptions = {
-                network: "testnet",
+                network: "besu",
                 options: {
                     methodSpecificIdAlgo: "uuid",
                     method: "kanon",
-                    network: "testnet",
+                    network: "besu",
                 },
                 schema: {
                     attrNames: attributes,

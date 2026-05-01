@@ -337,7 +337,7 @@ router.route('/')
 
       try {
         const schemaIdParts = schemaId.split(':');
-        const network = schemaIdParts.length >= 3 ? schemaIdParts[2] : 'testnet';
+        const network = schemaIdParts.length >= 3 ? schemaIdParts[2] : 'besu';
 
         const options: RegisterCredentialDefinitionOptions = {
           options: {

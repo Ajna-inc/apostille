@@ -4,7 +4,7 @@ import { TypedArrayEncoder, utils } from "@credo-ts/core";
 import { isBase58 } from "class-validator";
 
 const ID_CHAR = "([a-z,A-Z,0-9,-])";
-const NETWORK = "(testnet|mainnet)";
+const NETWORK = "(testnet|mainnet|besu)";
 const IDENTIFIER = `((?:${ID_CHAR}*:)*(${ID_CHAR}+))`;
 const PATH = `(/[^#?]*)?`;
 const QUERY = `([?][^#]*)?`;

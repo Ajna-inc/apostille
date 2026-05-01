@@ -128,10 +128,12 @@ router.route('/invitation')
 
       const agent = await getAgent({ tenantId });
 
+      // Credo 0.6 removed label from agent config — must pass per-invitation.
+      // Fall back to tenant label or 'ESSI Studio' so the wallet shows a name.
+      const invitationLabel = label || await getTenantLabel(tenantId) || 'ESSI Studio';
       const { outOfBandInvitation } = await agent.didcomm.oob.createInvitation({
         multiUseInvitation: true,
-        // Allow custom label for invitation when provided by UI
-        ...(label ? { label } : {}),
+        label: invitationLabel,
       });
 
       // Tenant routing keys are auto-registered by TenantAgentContextProvider
