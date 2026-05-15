@@ -528,6 +528,23 @@ export function createIssuerRoutes(): Router {
           { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' }
         ];
 
+        const demoLdpVcConfigs = [
+          {
+            id: 'AlumniCredential',
+            name: 'Alumni Credential',
+            desc: 'University alumni credential signed as JSON-LD with DataIntegrityProof (eddsa-rdfc-2022).',
+            types: ['VerifiableCredential', 'AlumniCredential'],
+            attrs: ['given_name', 'family_name', 'degree', 'major', 'graduation_year', 'alma_mater', 'gpa']
+          },
+          {
+            id: 'VolunteerCertificate',
+            name: 'Volunteer Certificate',
+            desc: 'JSON-LD VC certifying volunteer contributions, signed with DataIntegrityProof.',
+            types: ['VerifiableCredential', 'VolunteerCertificate'],
+            attrs: ['given_name', 'family_name', 'organization', 'role', 'hours_contributed', 'year']
+          }
+        ];
+
         for (const config of demoSdJwtConfigs) {
           if (!credentialConfigurations[config.id]) {
             const claims: Record<string, any> = {};
@@ -568,6 +585,30 @@ export function createIssuerRoutes(): Router {
               },
               display: [{ name: config.name, description: config.desc, background_color: '#4C1D95', text_color: '#FFFFFF', locale: 'en' }],
               claims: {}
+            };
+          }
+        }
+
+        for (const config of demoLdpVcConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'ldp_vc',
+              scope: config.id,
+              credential_definition: {
+                '@context': ['https://www.w3.org/ns/credentials/v2'],
+                type: config.types
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk', 'did:web'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#065F46', text_color: '#FFFFFF', locale: 'en' }],
+              claims
             };
           }
         }

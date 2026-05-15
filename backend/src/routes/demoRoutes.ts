@@ -195,6 +195,39 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
     }
   },
 
+  // JSON-LD VC Tier (W3C VC Data Model 2.0, DataIntegrityProof / eddsa-rdfc-2022)
+  'AlumniCredential': {
+    format: 'ldp_vc' as const,
+    credentialConfigurationId: 'AlumniCredential',
+    generateData: (name: string) => {
+      const [given, family] = name.split(' ');
+      return {
+        given_name: given || 'Alice',
+        family_name: family || 'Johnson',
+        degree: 'Bachelor of Science',
+        major: 'Computer Science',
+        graduation_year: '2024',
+        alma_mater: 'Digital University',
+        gpa: '3.85'
+      };
+    }
+  },
+  'VolunteerCertificate': {
+    format: 'ldp_vc' as const,
+    credentialConfigurationId: 'VolunteerCertificate',
+    generateData: (name: string) => {
+      const [given, family] = name.split(' ');
+      return {
+        given_name: given || 'Bob',
+        family_name: family || 'Williams',
+        organization: 'Open Source Foundation',
+        role: 'Maintainer',
+        hours_contributed: '120',
+        year: String(new Date().getFullYear() - 1)
+      };
+    }
+  },
+
   // mDL Tier (ISO 18013-5)
   'mDL': {
     format: 'mso_mdoc' as const,
@@ -214,7 +247,11 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
         expiry_date: expiry.toISOString().split('T')[0],
         issuing_country: 'US',
         issuing_authority: 'Department of Motor Vehicles',
-        issuing_jurisdiction: 'US-CA',
+        // ISO 18013-5 §7.2.4: if issuing_jurisdiction is present, the issuer
+        // certificate's stateOrProvinceName must equal it. The demo IACA/issuer
+        // certs in `certificates/` have no ST in their subject DN, so any
+        // value here would fail verification. Omit it (the field is optional)
+        // until the cert subject is updated.
         driving_privileges: [
           { vehicle_category_code: 'B', issue_date: today.toISOString().split('T')[0], expiry_date: expiry.toISOString().split('T')[0] }
         ],

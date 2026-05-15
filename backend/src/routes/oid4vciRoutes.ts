@@ -17,6 +17,7 @@ import {
 import type { AnonCredsCredentialOffer } from '@credo-ts/anoncreds'
 import { issueOpenBadgeCredential } from '../services/oid4vci/openBadgeIssuance'
 import { signJwtVc, signLdpVc, ensureDidKeyForW3c } from '../services/oid4vci/w3cIssuance'
+import { issueJsonLdCredential } from '../services/oid4vci/jsonLdIssuance'
 import { OpenBadgesKeyBindingRepository } from '@ajna-inc/openbadges'
 
 const router = Router()
@@ -891,14 +892,56 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         }
 
         if (offer.format === 'ldp_vc') {
-          const { credential } = await signLdpVc(agent, {
-            types,
-            issuerDid,
-            verificationMethod: vmId,
-            credentialSubject,
-            contexts,
-            proofType: offer.proofSuite || 'Ed25519Signature2020',
-          })
+          // Default to DataIntegrityProof + eddsa-rdfc-2022 — the only ldp_vc
+          // cryptosuite bifold v2 verifies. Tenants that explicitly opt into
+          // Credo's Ed25519Signature2020 can still get the old path.
+          const useDataIntegrity =
+            !offer.proofSuite || offer.proofSuite === 'DataIntegrityProof' ||
+            offer.proofSuite === 'eddsa-rdfc-2022'
+
+          let credential: Record<string, unknown>
+          if (useDataIntegrity) {
+            const hostname = new URL(apiBaseUrl).host
+            const diIssuerDid = `did:web:${hostname}:issuers:${tenantId}`
+            const diVm = `${diIssuerDid}#key-0`
+
+            // Self-heal stale binding records (same logic as the OBv3 branch).
+            let binding = await (agent.modules as any).openbadges.ensureBinding(diIssuerDid, diVm)
+            if (!binding?.kmsKeyId) {
+              console.warn('[ldp_vc] Stale key binding detected; recreating', { vm: diVm })
+              const bindingRepo: any = agent.dependencyManager.resolve(OpenBadgesKeyBindingRepository as any)
+              try {
+                const stale = await bindingRepo.findByVmId(agent.context, diVm)
+                if (stale) await bindingRepo.delete(agent.context, stale)
+              } catch (e: any) {
+                console.warn('[ldp_vc] Failed deleting stale key binding:', e?.message || e)
+              }
+              binding = await (agent.modules as any).openbadges.ensureBinding(diIssuerDid, diVm)
+              if (!binding?.kmsKeyId) {
+                throw new Error(`Failed to create kms-backed key binding for ${diVm}`)
+              }
+            }
+
+            const out = await issueJsonLdCredential(agent, {
+              contexts: contexts || [],
+              types,
+              issuerDid: diIssuerDid,
+              verificationMethod: diVm,
+              credentialSubject,
+            })
+            credential = out.credential
+          } else {
+            const out = await signLdpVc(agent, {
+              types,
+              issuerDid,
+              verificationMethod: vmId,
+              credentialSubject,
+              contexts,
+              proofType: offer.proofSuite,
+            })
+            credential = out.credential
+          }
+
           const responseBody = {
             format: 'ldp_vc',
             credential,

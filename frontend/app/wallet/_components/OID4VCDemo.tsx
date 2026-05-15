@@ -3,13 +3,36 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { demoApi } from '@/lib/api';
+import { Icon, ICON_PATHS } from '@/app/components/ui/Icons';
 
-const CREDENTIALS = [
+type IconName = keyof typeof ICON_PATHS;
+
+type CredentialType = 'sd-jwt' | 'obv3' | 'mdl' | 'ldp_vc';
+
+const TYPE_LABELS: Record<CredentialType, string> = {
+  'sd-jwt': 'SD-JWT',
+  'obv3': 'OBv3',
+  'mdl': 'mDL',
+  'ldp_vc': 'LDP-VC',
+};
+
+const CREDENTIALS: Array<{
+  id: string;
+  name: string;
+  icon: IconName;
+  tone: string;
+  type: CredentialType;
+  desc: string;
+  badgeType?: string;
+  criteria?: string;
+  attributes?: string[];
+}> = [
   // SD-JWT
   {
     id: 'StudentID',
     name: 'Student ID',
-    icon: '🎓',
+    icon: 'graduationCap',
+    tone: 'text-blue-600 dark:text-blue-400',
     type: 'sd-jwt',
     desc: 'University student identification card',
     attributes: ['given_name', 'family_name', 'student_id', 'university', 'program']
@@ -17,7 +40,8 @@ const CREDENTIALS = [
   {
     id: 'ProfessionalLicense',
     name: 'Professional License',
-    icon: '⚖️',
+    icon: 'scale',
+    tone: 'text-amber-600 dark:text-amber-400',
     type: 'sd-jwt',
     desc: 'State bar association lawyer license',
     attributes: ['given_name', 'family_name', 'license_number', 'profession', 'issuing_authority']
@@ -25,7 +49,8 @@ const CREDENTIALS = [
   {
     id: 'EmployeeBadge',
     name: 'Employee Badge',
-    icon: '💼',
+    icon: 'briefcase',
+    tone: 'text-slate-600 dark:text-slate-300',
     type: 'sd-jwt',
     desc: 'Corporate employee identification',
     attributes: ['given_name', 'family_name', 'employee_id', 'department', 'job_title']
@@ -33,7 +58,8 @@ const CREDENTIALS = [
   {
     id: 'HealthInsurance',
     name: 'Health Insurance',
-    icon: '🏥',
+    icon: 'hospital',
+    tone: 'text-red-500 dark:text-red-400',
     type: 'sd-jwt',
     desc: 'Global care provider member card',
     attributes: ['given_name', 'family_name', 'member_id', 'plan_name', 'insurer']
@@ -41,7 +67,8 @@ const CREDENTIALS = [
   {
     id: 'LoyaltyMembership',
     name: 'Loyalty Membership',
-    icon: '⭐',
+    icon: 'star',
+    tone: 'text-yellow-500 dark:text-yellow-400',
     type: 'sd-jwt',
     desc: 'SkyHigh rewards gold tier membership',
     attributes: ['given_name', 'family_name', 'member_id', 'tier', 'points']
@@ -49,17 +76,19 @@ const CREDENTIALS = [
   {
     id: 'AgeVerification',
     name: 'Age Verification',
-    icon: '🔞',
+    icon: 'userCheck',
+    tone: 'text-emerald-600 dark:text-emerald-400',
     type: 'sd-jwt',
     desc: 'Proof of age and nationality',
     attributes: ['given_name', 'family_name', 'birth_date', 'over_18', 'over_21']
   },
-  
+
   // OBv3
   {
     id: 'AcademicExcellence',
     name: 'Academic Excellence',
-    icon: '🏆',
+    icon: 'award',
+    tone: 'text-amber-500 dark:text-amber-400',
     type: 'obv3',
     desc: "Dean's List for Academic Excellence",
     badgeType: 'Award',
@@ -68,7 +97,8 @@ const CREDENTIALS = [
   {
     id: 'SkillsCertification',
     name: 'Skills Certification',
-    icon: '📜',
+    icon: 'scroll',
+    tone: 'text-violet-600 dark:text-violet-400',
     type: 'obv3',
     desc: 'Cloud Computing Specialist',
     badgeType: 'Certificate',
@@ -77,18 +107,40 @@ const CREDENTIALS = [
   {
     id: 'CourseCompletion',
     name: 'Course Completion',
-    icon: '🎯',
+    icon: 'target',
+    tone: 'text-rose-600 dark:text-rose-400',
     type: 'obv3',
     desc: 'Introduction to Web Development',
     badgeType: 'CourseRecord',
     criteria: 'Completed all course modules and the final capstone project.'
   },
 
+  // JSON-LD VC (W3C VC Data Model 2.0, DataIntegrityProof / eddsa-rdfc-2022)
+  {
+    id: 'AlumniCredential',
+    name: 'Alumni Credential',
+    icon: 'graduationCap',
+    tone: 'text-emerald-600 dark:text-emerald-400',
+    type: 'ldp_vc',
+    desc: 'JSON-LD alumni credential signed with DataIntegrityProof',
+    attributes: ['given_name', 'family_name', 'degree', 'major', 'graduation_year', 'alma_mater', 'gpa']
+  },
+  {
+    id: 'VolunteerCertificate',
+    name: 'Volunteer Certificate',
+    icon: 'fileCheck',
+    tone: 'text-teal-600 dark:text-teal-400',
+    type: 'ldp_vc',
+    desc: 'JSON-LD volunteer-hours certificate (eddsa-rdfc-2022)',
+    attributes: ['given_name', 'family_name', 'organization', 'role', 'hours_contributed', 'year']
+  },
+
   // mDL (ISO 18013-5)
   {
     id: 'mDL',
     name: "Mobile Driver's License",
-    icon: '🪪',
+    icon: 'idCard',
+    tone: 'text-indigo-600 dark:text-indigo-400',
     type: 'mdl',
     desc: 'ISO 18013-5 compliant mDL with driving privileges',
     attributes: ['given_name', 'family_name', 'birth_date', 'document_number', 'issue_date', 'expiry_date', 'issuing_country', 'driving_privileges', 'age_over_18']
@@ -187,14 +239,14 @@ export default function OID4VCDemo() {
             : 'border-transparent bg-white dark:bg-surface-800 hover:border-border-secondary shadow-sm'
         }`}
       >
-        <div className="w-12 h-12 bg-gradient-to-br from-surface-100 to-surface-200 dark:from-surface-700 dark:to-surface-800 rounded-lg flex items-center justify-center text-2xl shadow-inner">
-          {cred.icon}
+        <div className={`w-12 h-12 bg-gradient-to-br from-surface-100 to-surface-200 dark:from-surface-700 dark:to-surface-800 rounded-lg flex items-center justify-center shadow-inner ${cred.tone}`}>
+          <Icon name={cred.icon} className="w-6 h-6" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="font-bold text-text-primary truncate">{cred.name}</h3>
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-200 dark:bg-surface-700 text-text-secondary">
-              {cred.type === 'sd-jwt' ? 'SD-JWT' : 'OBv3'}
+              {TYPE_LABELS[cred.type]}
             </span>
           </div>
           <p className="text-xs text-text-secondary truncate">{cred.desc}</p>
@@ -209,8 +261,8 @@ export default function OID4VCDemo() {
       <div className="bg-surface-50 dark:bg-surface-900 border-b border-border-secondary pt-12 pb-8 px-6">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-primary-600 text-white rounded-2xl flex items-center justify-center text-3xl shadow-lg shadow-primary-600/20">
-              💳
+            <div className="w-16 h-16 bg-primary-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-primary-600/20">
+              <Icon name="cards" className="w-8 h-8" />
             </div>
             <div>
               <h1 className="text-3xl md:text-4xl font-extrabold text-text-primary tracking-tight">
@@ -222,7 +274,7 @@ export default function OID4VCDemo() {
 
           <div className="w-full md:w-auto bg-white dark:bg-surface-800 p-3 rounded-xl shadow-md border border-border-secondary flex items-center gap-3">
             <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center text-primary-600 dark:text-primary-400">
-              👤
+              <Icon name="user" className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-[200px]">
               <label htmlFor="recipientName" className="block text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-0.5">
@@ -261,6 +313,13 @@ export default function OID4VCDemo() {
             </div>
 
             <div>
+              <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">JSON-LD Verifiable Credentials (W3C VC 2.0)</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {CREDENTIALS.filter(c => c.type === 'ldp_vc').map(renderCompactCard)}
+              </div>
+            </div>
+
+            <div>
               <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">
                 Mobile Document (ISO 18013-5)
               </h2>
@@ -282,8 +341,8 @@ export default function OID4VCDemo() {
                     exit={{ opacity: 0 }}
                     className="flex flex-col items-center text-center opacity-50"
                   >
-                    <div className="w-24 h-24 border-4 border-dashed border-border-secondary rounded-2xl flex items-center justify-center text-4xl mb-4">
-                      📱
+                    <div className="w-24 h-24 border-4 border-dashed border-border-secondary rounded-2xl flex items-center justify-center text-text-secondary mb-4">
+                      <Icon name="smartphone" className="w-10 h-10" />
                     </div>
                     <h3 className="text-lg font-bold text-text-primary mb-2">No Credential Selected</h3>
                     <p className="text-sm text-text-secondary max-w-[250px]">
@@ -309,8 +368,8 @@ export default function OID4VCDemo() {
                     exit={{ opacity: 0 }}
                     className="flex flex-col items-center text-center w-full"
                   >
-                    <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-2xl mb-4">
-                      ⚠️
+                    <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+                      <Icon name="alert" className="w-7 h-7" />
                     </div>
                     <h3 className="text-lg font-bold text-text-primary mb-2">Issuance Failed</h3>
                     <p className="text-sm text-red-500 mb-6 px-4">{activeOffer.error}</p>
@@ -335,7 +394,7 @@ export default function OID4VCDemo() {
                       return (
                         <>
                           <div className="flex items-center gap-3 mb-6 bg-surface-50 dark:bg-surface-900 py-2 px-4 rounded-full border border-border-secondary">
-                            <span className="text-2xl">{cred?.icon}</span>
+                            {cred && <Icon name={cred.icon} className={`w-6 h-6 ${cred.tone}`} />}
                             <span className="font-bold text-text-primary">{cred?.name}</span>
                           </div>
 
