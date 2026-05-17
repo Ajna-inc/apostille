@@ -7,13 +7,15 @@ import { Icon, ICON_PATHS } from '@/app/components/ui/Icons';
 
 type IconName = keyof typeof ICON_PATHS;
 
-type CredentialType = 'sd-jwt' | 'obv3' | 'mdl' | 'ldp_vc';
+type CredentialType = 'sd-jwt' | 'obv3' | 'mdl' | 'ldp_vc' | 'jwt_vc_json' | 'jwt_vc_json-ld';
 
 const TYPE_LABELS: Record<CredentialType, string> = {
   'sd-jwt': 'SD-JWT',
   'obv3': 'OBv3',
   'mdl': 'mDL',
   'ldp_vc': 'LDP-VC',
+  'jwt_vc_json': 'JWT-VC',
+  'jwt_vc_json-ld': 'JWT-LD',
 };
 
 const CREDENTIALS: Array<{
@@ -114,6 +116,16 @@ const CREDENTIALS: Array<{
     badgeType: 'CourseRecord',
     criteria: 'Completed all course modules and the final capstone project.'
   },
+  {
+    id: 'AcademicEndorsement',
+    name: 'Academic Endorsement',
+    icon: 'shieldCheck',
+    tone: 'text-blue-700 dark:text-blue-400',
+    type: 'obv3',
+    desc: 'Third-party endorsement of an existing achievement',
+    badgeType: 'Endorsement',
+    criteria: 'Issued by an independent faculty review board endorsing the recipient\'s Dean\'s List recognition.'
+  },
 
   // JSON-LD VC (W3C VC Data Model 2.0, DataIntegrityProof / eddsa-rdfc-2022)
   {
@@ -135,6 +147,26 @@ const CREDENTIALS: Array<{
     attributes: ['given_name', 'family_name', 'organization', 'role', 'hours_contributed', 'year']
   },
 
+  // W3C JWT VC (W3C VC Data Model 1.1, compact JWT)
+  {
+    id: 'EventTicket',
+    name: 'Event Ticket',
+    icon: 'calendar',
+    tone: 'text-orange-600 dark:text-orange-400',
+    type: 'jwt_vc_json',
+    desc: 'Conference admission ticket signed as W3C VC-JWT',
+    attributes: ['given_name', 'family_name', 'event_name', 'venue', 'seat', 'event_date', 'ticket_id']
+  },
+  {
+    id: 'ResearchAttestation',
+    name: 'Research Attestation',
+    icon: 'fileSig',
+    tone: 'text-fuchsia-600 dark:text-fuchsia-400',
+    type: 'jwt_vc_json-ld',
+    desc: 'JSON-LD researcher attestation wrapped in a JWT',
+    attributes: ['given_name', 'family_name', 'institution', 'role', 'project', 'attestation_date']
+  },
+
   // mDL (ISO 18013-5)
   {
     id: 'mDL',
@@ -148,6 +180,7 @@ const CREDENTIALS: Array<{
 ];
 
 export default function OID4VCDemo() {
+  const [mode, setMode] = useState<'issue' | 'verify'>('issue');
   const [recipientName, setRecipientName] = useState('Alice Johnson');
   const [activeOffer, setActiveOffer] = useState<{
     credentialType: string;
@@ -157,6 +190,41 @@ export default function OID4VCDemo() {
     loading: boolean;
     error: string | null;
   } | null>(null);
+  const [activeVerification, setActiveVerification] = useState<{
+    credentialType: string;
+    uri: string;
+    sessionId: string;
+    status: string;
+    loading: boolean;
+    error: string | null;
+    verifiedClaims: Record<string, any> | null;
+  } | null>(null);
+
+  // Poll status for active verification session
+  useEffect(() => {
+    if (
+      !activeVerification ||
+      !activeVerification.sessionId ||
+      activeVerification.status === 'ResponseVerified' ||
+      activeVerification.error
+    ) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        const response = await demoApi.getVerificationStatus(activeVerification.sessionId);
+        if (response.success && (response.status !== activeVerification.status || response.verifiedClaims)) {
+          setActiveVerification(prev => prev
+            ? { ...prev, status: response.status, verifiedClaims: response.verifiedClaims ?? prev.verifiedClaims }
+            : null
+          );
+        }
+      } catch (err) {
+        console.error('Failed to poll verification status:', err);
+      }
+    }, 2000);
+
+    return () => clearInterval(intervalId);
+  }, [activeVerification]);
 
   // Poll status for active offer
   useEffect(() => {
@@ -189,7 +257,7 @@ export default function OID4VCDemo() {
 
     try {
       const response = await demoApi.createOid4vcOffer(credentialType, recipientName);
-      
+
       if (response.success) {
         setActiveOffer({
           credentialType,
@@ -204,6 +272,53 @@ export default function OID4VCDemo() {
       }
     } catch (err: any) {
       setActiveOffer(prev => prev ? { ...prev, loading: false, error: err.message || 'Error connecting to server' } : null);
+    }
+  };
+
+  const handleVerify = async (credentialType: string) => {
+    setActiveOffer(null);  // mutually exclusive with issuance
+    setActiveVerification({
+      credentialType,
+      uri: '',
+      sessionId: '',
+      status: 'RequestCreated',
+      loading: true,
+      error: null,
+      verifiedClaims: null,
+    });
+
+    try {
+      const response = await demoApi.createVerificationRequest(credentialType);
+      if (response.success) {
+        setActiveVerification({
+          credentialType,
+          uri: response.authorizationRequestUri,
+          sessionId: response.sessionId,
+          status: 'RequestCreated',
+          loading: false,
+          error: null,
+          verifiedClaims: null,
+        });
+      } else {
+        throw new Error(response.error_description || 'Failed to create verification request');
+      }
+    } catch (err: any) {
+      setActiveVerification(prev => prev ? { ...prev, loading: false, error: err.message || 'Error connecting to server' } : null);
+    }
+  };
+
+  const getVerificationBadge = (status: string) => {
+    switch (status) {
+      case 'RequestCreated':
+        return <span className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 px-3 py-1 rounded-full text-sm font-medium animate-pulse">Waiting for scan</span>;
+      case 'ResponseReceived':
+        return <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-3 py-1 rounded-full text-sm font-medium">Verifying signature</span>;
+      case 'ResponseVerified':
+        return <span className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 px-3 py-1 rounded-full text-sm font-medium">Verified ✓</span>;
+      case 'Error':
+        return <span className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 px-3 py-1 rounded-full text-sm font-medium">Verification failed</span>;
+      default:
+        return <span className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300 px-3 py-1 rounded-full text-sm font-medium">{status}</span>;
     }
   };
 
@@ -223,7 +338,9 @@ export default function OID4VCDemo() {
   };
 
   const renderCompactCard = (cred: typeof CREDENTIALS[0]) => {
-    const isActive = activeOffer?.credentialType === cred.id;
+    const isActive = mode === 'issue'
+      ? activeOffer?.credentialType === cred.id
+      : activeVerification?.credentialType === cred.id;
 
     return (
       <motion.button
@@ -231,7 +348,9 @@ export default function OID4VCDemo() {
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         onClick={() => {
-          if (!isActive) handleIssue(cred.id);
+          if (isActive) return;
+          if (mode === 'issue') handleIssue(cred.id);
+          else handleVerify(cred.id);
         }}
         className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 text-left ${
           isActive
@@ -298,6 +417,30 @@ export default function OID4VCDemo() {
           
           {/* Left Column: Credential Selection */}
           <div className="flex-1 flex flex-col gap-8">
+            {/* Mode toggle: Issue vs Verify */}
+            <div className="flex items-center justify-center gap-2 bg-white dark:bg-surface-800 p-1 rounded-xl shadow-sm border border-border-secondary self-start">
+              <button
+                onClick={() => { setMode('issue'); setActiveVerification(null); }}
+                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  mode === 'issue'
+                    ? 'bg-primary-600 text-white shadow'
+                    : 'text-text-secondary hover:bg-surface-50 dark:hover:bg-surface-700'
+                }`}
+              >
+                Issue
+              </button>
+              <button
+                onClick={() => { setMode('verify'); setActiveOffer(null); }}
+                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  mode === 'verify'
+                    ? 'bg-primary-600 text-white shadow'
+                    : 'text-text-secondary hover:bg-surface-50 dark:hover:bg-surface-700'
+                }`}
+              >
+                Verify
+              </button>
+            </div>
+
             <div>
               <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">Verifiable Credentials (SD-JWT)</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -320,6 +463,13 @@ export default function OID4VCDemo() {
             </div>
 
             <div>
+              <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">W3C JWT VC (jwt_vc_json &amp; jwt_vc_json-ld)</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {CREDENTIALS.filter(c => c.type === 'jwt_vc_json' || c.type === 'jwt_vc_json-ld').map(renderCompactCard)}
+              </div>
+            </div>
+
+            <div>
               <h2 className="text-sm font-bold text-text-tertiary uppercase tracking-wider mb-4">
                 Mobile Document (ISO 18013-5)
               </h2>
@@ -332,6 +482,102 @@ export default function OID4VCDemo() {
           {/* Right Column: Central QR Display */}
           <div className="w-full lg:w-[400px] flex-shrink-0">
             <div className="sticky top-24 bg-white dark:bg-surface-800 rounded-2xl shadow-xl border border-border-secondary p-8 flex flex-col items-center justify-center min-h-[500px]">
+              {mode === 'verify' ? (
+              <AnimatePresence mode="wait">
+                {!activeVerification ? (
+                  <motion.div
+                    key="verify-empty"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="flex flex-col items-center text-center opacity-50"
+                  >
+                    <div className="w-24 h-24 border-4 border-dashed border-border-secondary rounded-2xl flex items-center justify-center text-text-secondary mb-4">
+                      <Icon name="shieldCheck" className="w-10 h-10" />
+                    </div>
+                    <h3 className="text-lg font-bold text-text-primary mb-2">No Credential Requested</h3>
+                    <p className="text-sm text-text-secondary max-w-[250px]">
+                      Select a credential to request a verifiable presentation via OID4VP.
+                    </p>
+                  </motion.div>
+                ) : activeVerification.loading ? (
+                  <motion.div key="verify-loading" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="flex flex-col items-center">
+                    <div className="w-16 h-16 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mb-4"></div>
+                    <p className="font-semibold text-text-secondary">Building Verification Request...</p>
+                  </motion.div>
+                ) : activeVerification.error ? (
+                  <motion.div key="verify-error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center text-center w-full">
+                    <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+                      <Icon name="alert" className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-lg font-bold text-text-primary mb-2">Verification Setup Failed</h3>
+                    <p className="text-sm text-red-500 mb-6 px-4">{activeVerification.error}</p>
+                    <button onClick={() => handleVerify(activeVerification.credentialType)} className="bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors">Try Again</button>
+                  </motion.div>
+                ) : (
+                  <motion.div key="verify-qr" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="flex flex-col items-center w-full">
+                    {(() => {
+                      const cred = CREDENTIALS.find(c => c.id === activeVerification.credentialType);
+                      const isVerified = activeVerification.status === 'ResponseVerified';
+                      return (
+                        <>
+                          <div className="flex items-center gap-3 mb-6 bg-surface-50 dark:bg-surface-900 py-2 px-4 rounded-full border border-border-secondary">
+                            {cred && <Icon name={cred.icon} className={`w-6 h-6 ${cred.tone}`} />}
+                            <span className="font-bold text-text-primary">{cred?.name}</span>
+                          </div>
+
+                          <div className="mb-6">
+                            {getVerificationBadge(activeVerification.status)}
+                          </div>
+
+                          {!isVerified ? (
+                            <>
+                              <div className="bg-white p-4 rounded-2xl shadow-sm border border-border-secondary mb-6">
+                                <QRCodeSVG value={activeVerification.uri} size={240} level="M" includeMargin={false} />
+                              </div>
+                              <p className="text-sm text-text-secondary text-center mb-6">
+                                Scan with your wallet and select a {cred?.name} to present.
+                              </p>
+                            </>
+                          ) : (
+                            <div className="w-full bg-surface-50 dark:bg-surface-900 rounded-xl border border-border-secondary p-4 mb-6 max-h-[300px] overflow-y-auto">
+                              <p className="text-xs font-bold text-text-tertiary uppercase tracking-wider mb-3">Verified Claims</p>
+                              <div className="flex flex-col gap-2">
+                                {activeVerification.verifiedClaims && Object.entries(activeVerification.verifiedClaims)
+                                  .filter(([k]) => !k.startsWith('__'))
+                                  .map(([k, v]) => (
+                                    <div key={k} className="flex justify-between gap-3 text-sm">
+                                      <span className="font-mono text-text-secondary truncate">{k}</span>
+                                      <span className="font-semibold text-text-primary text-right truncate max-w-[180px]">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex w-full gap-3">
+                            <button
+                              onClick={() => navigator.clipboard.writeText(activeVerification.uri)}
+                              className="flex-1 bg-surface-100 dark:bg-surface-700 hover:bg-surface-200 dark:hover:bg-surface-600 text-text-primary font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                              Copy Link
+                            </button>
+                            <button
+                              onClick={() => handleVerify(activeVerification.credentialType)}
+                              className="bg-surface-100 dark:bg-surface-700 hover:bg-surface-200 dark:hover:bg-surface-600 text-text-primary p-2.5 rounded-xl transition-colors"
+                              title="Generate new verification request"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            </button>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              ) : (
               <AnimatePresence mode="wait">
                 {!activeOffer ? (
                   <motion.div
@@ -439,6 +685,7 @@ export default function OID4VCDemo() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              )}
             </div>
           </div>
         </div>

@@ -510,8 +510,17 @@ async function initializeAgent(
                     enableProblemReport: true,
                 }),
                 // OpenID4VC Issuer Module for issuing credentials via OID4VCI
+                //
+                // Mounted at a parking-lot sub-path. We do NOT use Credo's
+                // auto-mounted issuer routes — all OID4VCI traffic is served
+                // by our manual `oid4vciRoutes.ts` at `/issuers/:tenantId/...`
+                // (token, credential) and `wellKnownRoutes.ts` (metadata).
+                // The module still has to be registered for DI / cred-mapper
+                // wiring; giving it a sub-path keeps its dormant
+                // `/:issuerId/...` router from intercepting requests to other
+                // modules (notably the verifier at `/oid4vp/...`).
                 openId4VcIssuer: new OpenId4VcIssuerModule({
-                    baseUrl: apiBaseUrl,
+                    baseUrl: `${apiBaseUrl}/_credo-issuer-unused`,
                     app: openId4VcApp!,
                     credentialRequestToCredentialMapper: async ({
                         agentContext,
@@ -525,8 +534,14 @@ async function initializeAgent(
                     },
                 }),
                 // OpenID4VC Verifier Module for verifying credentials via OID4VP
+                //
+                // Mount under `/oid4vp` to avoid collision with the Issuer
+                // module's `/:issuerId/...` router. When both are mounted at
+                // the same baseUrl, Express tries the issuer's :issuerId param
+                // handler first; it 404s for verifier ids that aren't issuers,
+                // never reaching the verifier router.
                 openId4VcVerifier: new OpenId4VcVerifierModule({
-                    baseUrl: apiBaseUrl,
+                    baseUrl: `${apiBaseUrl}/oid4vp`,
                     app: openId4VcApp!,
                 }),
             },

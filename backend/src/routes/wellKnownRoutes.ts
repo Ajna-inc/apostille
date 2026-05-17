@@ -528,6 +528,14 @@ export function createIssuerRoutes(): Router {
           { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' }
         ];
 
+        const demoEndorsementConfigs = [
+          {
+            id: 'AcademicEndorsement',
+            name: 'Academic Endorsement',
+            desc: 'Third-party endorsement of an existing academic achievement (OBv3 EndorsementCredential).'
+          }
+        ];
+
         const demoLdpVcConfigs = [
           {
             id: 'AlumniCredential',
@@ -542,6 +550,26 @@ export function createIssuerRoutes(): Router {
             desc: 'JSON-LD VC certifying volunteer contributions, signed with DataIntegrityProof.',
             types: ['VerifiableCredential', 'VolunteerCertificate'],
             attrs: ['given_name', 'family_name', 'organization', 'role', 'hours_contributed', 'year']
+          }
+        ];
+
+        const demoJwtVcJsonConfigs = [
+          {
+            id: 'EventTicket',
+            name: 'Event Ticket',
+            desc: 'W3C VC-JWT v1.1 event admission ticket (jwt_vc_json).',
+            types: ['VerifiableCredential', 'EventTicket'],
+            attrs: ['given_name', 'family_name', 'event_name', 'venue', 'seat', 'event_date', 'ticket_id']
+          }
+        ];
+
+        const demoJwtVcJsonLdConfigs = [
+          {
+            id: 'ResearchAttestation',
+            name: 'Research Attestation',
+            desc: 'W3C VC-JWT with JSON-LD context (jwt_vc_json-ld) attesting a research role.',
+            types: ['VerifiableCredential', 'ResearchAttestation'],
+            attrs: ['given_name', 'family_name', 'institution', 'role', 'project', 'attestation_date']
           }
         ];
 
@@ -589,6 +617,29 @@ export function createIssuerRoutes(): Router {
           }
         }
 
+        for (const config of demoEndorsementConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            credentialConfigurations[config.id] = {
+              format: 'ldp_vc',
+              scope: config.id,
+              credential_definition: {
+                '@context': [
+                  'https://www.w3.org/ns/credentials/v2',
+                  'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json'
+                ],
+                type: ['VerifiableCredential', 'EndorsementCredential']
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk', 'did:web'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#1E40AF', text_color: '#FFFFFF', locale: 'en' }],
+              claims: {}
+            };
+          }
+        }
+
         for (const config of demoLdpVcConfigs) {
           if (!credentialConfigurations[config.id]) {
             const claims: Record<string, any> = {};
@@ -608,6 +659,53 @@ export function createIssuerRoutes(): Router {
                 jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
               },
               display: [{ name: config.name, description: config.desc, background_color: '#065F46', text_color: '#FFFFFF', locale: 'en' }],
+              claims
+            };
+          }
+        }
+
+        for (const config of demoJwtVcJsonConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'jwt_vc_json',
+              scope: config.id,
+              credential_definition: {
+                type: config.types
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#9A3412', text_color: '#FFFFFF', locale: 'en' }],
+              claims
+            };
+          }
+        }
+
+        for (const config of demoJwtVcJsonLdConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'jwt_vc_json-ld',
+              scope: config.id,
+              credential_definition: {
+                '@context': ['https://www.w3.org/2018/credentials/v1'],
+                type: config.types
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#7C2D12', text_color: '#FFFFFF', locale: 'en' }],
               claims
             };
           }

@@ -16,6 +16,7 @@ import {
 } from '../services/oid4vci/anonCredsIssuance'
 import type { AnonCredsCredentialOffer } from '@credo-ts/anoncreds'
 import { issueOpenBadgeCredential } from '../services/oid4vci/openBadgeIssuance'
+import { issueEndorsementCredential } from '../services/oid4vci/endorsementIssuance'
 import { signJwtVc, signLdpVc, ensureDidKeyForW3c } from '../services/oid4vci/w3cIssuance'
 import { issueJsonLdCredential } from '../services/oid4vci/jsonLdIssuance'
 import { OpenBadgesKeyBindingRepository } from '@ajna-inc/openbadges'
@@ -55,6 +56,17 @@ interface PendingOffer {
   vcContexts?: string[]
   vcTypes?: string[]
   achievement?: Record<string, any>
+  /**
+   * OBv3 EndorsementCredential payload (third-party endorsement of an
+   * achievement/profile). When set, the openbadge_v3 dispatch branch in the
+   * credential endpoint will call `issueEndorsementCredential` instead of
+   * `issueOpenBadgeCredential`.
+   */
+  endorsement?: {
+    endorsedEntity: string
+    endorsementComment?: string
+    issuerProfile?: Record<string, any>
+  }
   proofSuite?: string
   signingAlg?: string
   wireTrace?: WireTrace
@@ -809,6 +821,52 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
           const recipient = offer.credentialData || {}
 
           const verificationMethod = `${issuerDid}#key-0`
+
+          // OBv3 EndorsementCredential branch — third-party endorsement of an
+          // existing achievement/profile. Signed on the same key as the
+          // tenant's regular OBv3 AchievementCredentials.
+          if (offer.endorsement) {
+            const endorser = offer.endorsement.issuerProfile || {}
+            const { credential: endorsementCred } = await issueEndorsementCredential(agent, {
+              endorsedEntity:
+                offer.endorsement.endorsedEntity ||
+                (recipient as any).endorsedEntity,
+              endorsementComment:
+                offer.endorsement.endorsementComment ||
+                (recipient as any).endorsementComment,
+              issuerProfile: {
+                id: endorser.id || issuerDid,
+                type: endorser.type || 'Profile',
+                name:
+                  endorser.name ||
+                  (recipient as any).endorserName ||
+                  process.env.ISSUER_NAME,
+                url: endorser.url || process.env.ISSUER_URL,
+                description: endorser.description,
+                image: endorser.image,
+              },
+              verificationMethod,
+            })
+
+            const responseBody = {
+              format: 'ldp_vc',
+              credential: endorsementCred,
+              c_nonce: cNonceForNext,
+              c_nonce_expires_in: 300,
+            }
+
+            offer.status = 'credential_issued'
+            offer.cNonce = cNonceForNext
+            if (offer.wireTrace) offer.wireTrace.credentialResponse = responseBody
+            await pendingOffers.set(offer.id, offer)
+            try {
+              await db.query(
+                `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW(), c_nonce = $2 WHERE id = $1`,
+                [offer.id, cNonceForNext],
+              )
+            } catch (e) { console.warn('Endorsement offer update failed:', e) }
+            return res.json(responseBody)
+          }
           const openbadgesApi = (agent.modules as any)?.openbadges
           if (!openbadgesApi) {
             throw new Error('OpenBadges module not configured on tenant agent')

@@ -284,6 +284,16 @@ app.use('/api/oid4vp', oid4vpRoutes);
 // /issuers/:tenantId/response - public endpoint for wallet presentation submission
 app.use('/issuers', oid4vpRoutes);
 
+// Demo OID4VP interceptor — must be registered BEFORE initializeAgentSystem
+// so it sits earlier in the middleware stack than Credo's auto-mounted
+// verifier router (which goes up at agent init). Intercepts ldp_vp bodies
+// posted to /oid4vp/demo-verifier/authorize and verifies them via the
+// @ajna-inc/openbadges DataIntegrityService — bypasses Credo's broken V1
+// W3cJsonLdVerifiablePresentation validator. Other formats (SD-JWT, mdoc,
+// JWT-VP) fall through via next() to Credo's normal flow.
+import demoOid4vpInterceptor from './routes/demoOid4vpInterceptor';
+app.use('/', demoOid4vpInterceptor);
+
 const STALE_SESSION_PATTERNS = [
   'failed to acquire an agent context session',
   'wallet is closed',

@@ -83,7 +83,6 @@ router.post('/credentials/issue', auth, async (req: Request, res: Response) => {
         ...(issuerDescription && { description: issuerDescription }),
       },
       validFrom: new Date().toISOString(),
-      issuanceDate: new Date().toISOString(), // VC 1.1 compatibility for plain JSON validators
       name: recipientName,
       credentialSubject: {
         id: recipientDid || `urn:uuid:${crypto.randomUUID()}`,

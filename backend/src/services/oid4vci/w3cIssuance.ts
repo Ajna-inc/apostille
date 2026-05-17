@@ -75,8 +75,12 @@ function buildW3cCredential(input: W3cIssuanceInput, defaultContext: string): an
  * Returns the compact JWT string ready for the OID4VCI `credential` field.
  */
 export async function signJwtVc(agent: any, opts: SignJwtVcOptions): Promise<{ jwt: string }> {
-  const defaultContext = opts.jsonLd ? DEFAULT_VC_V2_CONTEXT : DEFAULT_VC_V1_CONTEXT
-  const credential = buildW3cCredential(opts, defaultContext)
+  // Credo's ClaimFormat.JwtVc builds a W3cCredential (V1 class). Its
+  // IsCredentialJsonLdContext validator requires `@context[0]` ===
+  // CREDENTIALS_CONTEXT_V1_URL. Use VC v1 for both jwt_vc_json and
+  // jwt_vc_json-ld — the `jsonLd` flag now only signals which OID4VCI wire
+  // format string we advertise, not which W3C VC model version to target.
+  const credential = buildW3cCredential(opts, DEFAULT_VC_V1_CONTEXT)
   const { ClaimFormat } = require('@credo-ts/core')
 
   const signed = await agent.w3cCredentials.signCredential({
