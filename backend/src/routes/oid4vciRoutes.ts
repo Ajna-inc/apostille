@@ -783,19 +783,25 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
       // Resolve schema attributes (best-effort) for non-OBv3 formats so we
       // can pass `credentialSubject` claims to the W3C signer.
       let claimAttrs: string[] = []
-      try {
-        const credDefResult = await db.query(
-          'SELECT schema_attributes FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
-          [offer.credentialDefinitionId, tenantId]
-        )
-        if (credDefResult.rows.length > 0) {
-          const row = credDefResult.rows[0]
-          claimAttrs = Array.isArray(row.schema_attributes)
-            ? row.schema_attributes
-            : JSON.parse(row.schema_attributes || '[]')
+      // Demo offers (id prefix `demo-`) never have a cred-def row, and the
+      // platform tenant id is a string not a uuid → the lookup throws on
+      // every request. Short-circuit to skip the round-trip + Postgres error.
+      const isDemoOffer = offer.credentialDefinitionId?.startsWith('demo-')
+      if (!isDemoOffer) {
+        try {
+          const credDefResult = await db.query(
+            'SELECT schema_attributes FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
+            [offer.credentialDefinitionId, tenantId]
+          )
+          if (credDefResult.rows.length > 0) {
+            const row = credDefResult.rows[0]
+            claimAttrs = Array.isArray(row.schema_attributes)
+              ? row.schema_attributes
+              : JSON.parse(row.schema_attributes || '[]')
+          }
+        } catch (e: any) {
+          console.warn(`[${offer.format}] Schema-attrs lookup failed:`, e.message)
         }
-      } catch (e: any) {
-        console.warn(`[${offer.format}] Schema-attrs lookup failed:`, e.message)
       }
 
       const credentialSubjectClaims: Record<string, any> = {}
@@ -891,6 +897,32 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
             }
           }
 
+          // Build OBv3 IdentityObject[] entries from well-known credentialData
+          // fields. Per OBv3 §IdentityObject (additionalProperties:false), each
+          // entry MUST have {type:'IdentityObject', hashed, identityHash, identityType}.
+          const extraIdentifiers: any[] = Array.isArray((recipient as any).identifiers)
+            ? [...(recipient as any).identifiers]
+            : []
+          if ((recipient as any).student_id) {
+            extraIdentifiers.push({
+              type: 'IdentityObject',
+              hashed: false,
+              identityHash: String((recipient as any).student_id),
+              // `sourcedId` is the closest OBv3 IdentifierTypeEnum value for
+              // an institutional student-record ID; per spec "studentId" is
+              // not in the enum.
+              identityType: 'sourcedId',
+            })
+          }
+          if ((recipient as any).email) {
+            extraIdentifiers.push({
+              type: 'IdentityObject',
+              hashed: false,
+              identityHash: String((recipient as any).email),
+              identityType: 'emailAddress',
+            })
+          }
+
           const { credential: obCredential } = await issueOpenBadgeCredential(agent, {
             achievement: {
               id: (recipient as any).achievementId || (achievementSrc as any).id,
@@ -903,6 +935,9 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
                   ? { narrative: (recipient as any).achievementCriteria }
                   : (achievementSrc as any).criteria,
               image: (recipient as any).achievementImage || (achievementSrc as any).image,
+              // OBv3 Achievement.tag — array of keywords / skills. In spec
+              // (Achievement properties include `tag`).
+              tag: (recipient as any).achievementTag || (achievementSrc as any).tag,
             },
             issuer: {
               id: issuerDid,
@@ -912,9 +947,14 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
             recipient: {
               id: holderDidLocal || (recipient as any).recipientDid,
               name: (recipient as any).recipientName || (recipient as any).name,
-              identifiers: (recipient as any).identifiers,
+              identifiers: extraIdentifiers.length > 0 ? extraIdentifiers : undefined,
               extras: claimAttrs.length > 0 ? credentialSubjectClaims : undefined,
             },
+            // Honor a recipient-supplied conferral / award date (e.g. for a
+            // diploma issued for a past date). Falls back to "now" if absent.
+            validFrom: (recipient as any).date_conferred
+              ? new Date((recipient as any).date_conferred).toISOString()
+              : undefined,
             verificationMethod,
           })
 

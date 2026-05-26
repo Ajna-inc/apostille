@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express'
+import { DidCommAutoAcceptCredential } from '@credo-ts/didcomm'
 import { auth } from '../middleware/authMiddleware'
 import { getAgent } from '../services/agentService'
 import { sendBadgeNotification } from '../services/emailService'
@@ -113,17 +114,36 @@ router.post('/credentials/issue', auth, async (req: Request, res: Response) => {
     let sentViaDIDComm = false
     let emailSent = false
 
+    // Always sign + store locally so we have a record id for response/email.
+    record = await openbadgesApi.issueCredential(credentialWithProof)
+
     if (connectionId) {
-      // Send via DIDComm — sendCredential issues + sends in one step
+      // Also push to the holder via standard Aries Issue-Credentials v2 using the
+      // OpenBadgesCredentialFormatService registered on DidCommModule. The format
+      // service re-signs through IssuerService inside `acceptRequest`, so we send
+      // the UNSIGNED credential here (proof.proofValue is added by the format
+      // service on the holder's request hop).
       try {
-        await openbadgesApi.sendCredential(connectionId, credentialWithProof)
+        const didcomm = (agent as any).didcomm
+        await didcomm.credentials.offerCredential({
+          connectionId,
+          protocolVersion: 'v2',
+          autoAcceptCredential: DidCommAutoAcceptCredential.Always,
+          credentialFormats: {
+            openbadges: {
+              credential,
+              options: {
+                proofType: 'DataIntegrityProof',
+                cryptosuite: 'eddsa-rdfc-2022',
+                verificationMethod: `${issuerDid}#key-0`,
+              },
+            },
+          },
+        })
         sentViaDIDComm = true
       } catch (err) {
         console.error('Failed to send via DIDComm:', err)
       }
-    } else {
-      // No connection — just issue and store locally
-      record = await openbadgesApi.issueCredential(credentialWithProof)
     }
 
     // Send email notification if recipientEmail provided

@@ -22,6 +22,7 @@ import {
     DidCommConnectionEventTypes,
     DidCommCredentialV2Protocol,
     DidCommDidExchangeState,
+    DidCommDiscoverFeaturesModule,
     DidCommFeatureRegistry,
     DidCommHttpOutboundTransport,
     DidCommModule,
@@ -60,7 +61,7 @@ import { VaultsModule } from '@ajna-inc/vaults'
 // import { GroupMessagingModule } from '@ajna-inc/group-messaging' // Disabled: group-messaging package not available for Credo 0.6.x
 import { PoeModule } from '@ajna-inc/poe'
 import { CalendarModule } from '@ajna-inc/calendar'
-import { OpenBadgesModule } from '@ajna-inc/openbadges'
+import { OpenBadgesModule, OpenBadgesCredentialFormatService, OpenBadgesProofFormatService } from '@ajna-inc/openbadges'
 import { OpenId4VcIssuerModule, OpenId4VcVerifierModule } from '@credo-ts/openid4vc'
 import { getMockPoePrograms } from '../poe/MockPoeProgram'
 import { CacheStore } from './redis/cacheStore'
@@ -398,7 +399,7 @@ async function initializeAgent(
     }
 
     const config: InitConfig = {
-        logger: new ConsoleLogger(LogLevel.info),
+        logger: new ConsoleLogger(LogLevel.debug),
     };
     // Ethereum config - uses empty strings if not configured (POE features disabled)
     const ethConfig = new KanonModuleConfig({
@@ -455,7 +456,10 @@ async function initializeAgent(
                         autoAcceptProofs: DidCommAutoAcceptProof.Always,
                         proofProtocols: [
                             new DidCommProofV2Protocol({
-                                proofFormats: [new AnonCredsDidCommProofFormatService()],
+                                proofFormats: [
+                                    new AnonCredsDidCommProofFormatService(),
+                                    new OpenBadgesProofFormatService(),
+                                ],
                             }),
                         ],
                     },
@@ -463,7 +467,10 @@ async function initializeAgent(
                         autoAcceptCredentials: DidCommAutoAcceptCredential.Always,
                         credentialProtocols: [
                             new DidCommCredentialV2Protocol({
-                                credentialFormats: [new AnonCredsDidCommCredentialFormatService()],
+                                credentialFormats: [
+                                    new AnonCredsDidCommCredentialFormatService(),
+                                    new OpenBadgesCredentialFormatService(),
+                                ],
                             }),
                         ],
                     },
@@ -495,6 +502,15 @@ async function initializeAgent(
                     operatorMode: true,  // Can store vaults for other agents
                     inlineThreshold: 5 * 1024 * 1024,  // 5MB - files larger use S3
                 })),
+
+                // Discover-features v2 — required so wallets can pre-flight
+                // check whether this server supports `vaults/1.0` before they
+                // initiate a backup or restore. Without this, the discover
+                // query times out silently and the wallet falls back to a
+                // generic "we don't know" UX.
+                discoverFeatures: new DidCommDiscoverFeaturesModule({
+                    autoAcceptQueries: true,
+                }),
 
                 // groupMessaging: wrapLegacyModule(new GroupMessagingModule()),
                 webrtc: wrapLegacyModule(new WebRTCModule()),
@@ -1265,6 +1281,96 @@ export async function getMainAgent(): Promise<AgentWithDidComm> {
         throw new Error('Main agent not initialized');
     }
     return mainAgent;
+}
+
+/**
+ * Run an operation with the main agent, transparently recovering from a stale
+ * Askar session. On a stale-session error the `mainAgent` singleton is dropped
+ * and re-initialized, then the operation runs once more on the fresh agent.
+ */
+export async function withMainAgent<T>(
+    operation: (agent: AgentWithDidComm) => Promise<T>
+): Promise<T> {
+    const agent = await getMainAgent();
+    try {
+        return await operation(agent);
+    } catch (error: any) {
+        if (!isStaleSessionError(error)) throw error;
+        console.warn(`[AgentService] Stale session on main agent, reopening: ${error.message}`);
+        mainAgent = null;
+        const fresh = await initializeAgent(MAIN_WALLET_ID, MAIN_WALLET_KEY);
+        return operation(fresh);
+    }
+}
+
+/**
+ * Background keepalive for cached Askar sessions.
+ *
+ * DigitalOcean managed Postgres closes idle backend connections after a few
+ * minutes. When idle the Askar wallet's Postgres connection dies, and the
+ * first user request through the cached agent pays TCP+TLS handshake (or
+ * fails with "wallet is closed"). A cheap O(1) read every 60 s through each
+ * cached agent keeps the Askar→Postgres pool warm; on a stale session the
+ * cache is evicted so the next user request opens a fresh agent.
+ *
+ * Cost per tick: one primary-key lookup on the generic-records table that
+ * always returns null (~1 ms). Independent of wallet size.
+ */
+const AGENT_KEEPALIVE_INTERVAL_MS = 60_000
+const keepaliveTenants = new Set<string>()
+
+export function startAgentKeepalive(tenantId: string): void {
+    if (keepaliveTenants.has(tenantId)) return;
+    keepaliveTenants.add(tenantId);
+
+    const tick = async () => {
+        const cached = tenantAgentCache[tenantId];
+        if (!cached) return;
+        try {
+            // `genericRecords.findById(id)` is a single primary-key lookup
+            // that returns null when the record doesn't exist. It hits the
+            // Askar wallet's Postgres connection, which is exactly what we
+            // want to keep warm. O(1) regardless of wallet contents.
+            await cached.genericRecords.findById('keepalive-noop');
+        } catch (err: any) {
+            if (isStaleSessionError(err)) {
+                console.warn(`[Keepalive] Stale Askar session for ${tenantId}, evicting cache`);
+                clearTenantAgentCache(tenantId);
+            } else {
+                // Swallow other errors quietly — keepalive failure shouldn't
+                // crash the process or spam logs.
+            }
+        }
+    };
+
+    const handle = setInterval(() => void tick(), AGENT_KEEPALIVE_INTERVAL_MS);
+    handle.unref?.();
+}
+
+/**
+ * Keepalive variant for the main (verifier-host) agent. Uses the same cheap
+ * findById ping; on stale-session error the `mainAgent` singleton is dropped
+ * so the next caller reinitializes.
+ */
+let mainAgentKeepaliveStarted = false
+export function startMainAgentKeepalive(): void {
+    if (mainAgentKeepaliveStarted) return;
+    mainAgentKeepaliveStarted = true;
+
+    const tick = async () => {
+        if (!mainAgent) return;
+        try {
+            await mainAgent.genericRecords.findById('keepalive-noop');
+        } catch (err: any) {
+            if (isStaleSessionError(err)) {
+                console.warn('[Keepalive] Stale Askar session on main agent, evicting');
+                mainAgent = null;
+            }
+        }
+    };
+
+    const handle = setInterval(() => void tick(), AGENT_KEEPALIVE_INTERVAL_MS);
+    handle.unref?.();
 }
 
 /**

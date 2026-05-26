@@ -25,6 +25,11 @@
     "start:backend": "cd backend && yarn start",
     "start:frontend": "cd frontend && yarn start",
     "start": "dotenv -e .env concurrently \"yarn start:backend\" \"yarn start:frontend\"",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "test:e2e:headed": "playwright test --config=e2e/playwright.config.ts --headed",
+    "test:e2e:ui": "playwright test --config=e2e/playwright.config.ts --ui",
+    "test:e2e:vault-restore": "playwright test --config=e2e/playwright.config.ts specs/vault-restore.spec.ts",
+    "test:e2e:report": "playwright show-report playwright-report",
     "test:e2e:workflow": "yarn workspace @ajna-inc/workflow-e2e-tests test",
     "e2e:ui": "yarn workspace frontend cypress run"
   },

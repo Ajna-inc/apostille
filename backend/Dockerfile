@@ -20,6 +20,8 @@ RUN echo "nodeLinker: node-modules" > .yarnrc.yml \
 COPY tsconfig.json ./
 COPY ca-certificate.crt ./
 COPY src ./src
+# Demo portrait JPEGs read at startup by services/oid4vci/portraits.ts
+COPY assets ./assets
 
 # Build
 RUN yarn build

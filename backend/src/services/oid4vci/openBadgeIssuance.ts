@@ -29,6 +29,7 @@ export interface AchievementTemplate {
   description?: string
   criteria?: { id?: string; narrative?: string } | string
   image?: string | { id: string; type?: string }
+  tag?: string[]
 }
 
 export interface IssuerProfile {
@@ -39,18 +40,46 @@ export interface IssuerProfile {
   image?: string | { id: string; type?: string }
 }
 
+/**
+ * An OBv3 `IdentityObject` (the JSON Schema $def used by
+ * `AchievementSubject.identifier`). Required by spec:
+ *   { type:'IdentityObject', hashed, identityHash, identityType }
+ * `identityType` is one of the IdentifierTypeEnum values or an `ext:` extension.
+ * `additionalProperties:false` on the schema, so do not add other fields.
+ */
+export interface ObV3IdentityObject {
+  type: 'IdentityObject'
+  hashed: boolean
+  identityHash: string
+  identityType: string
+  salt?: string
+}
+
 export interface RecipientData {
   /**
-   * Recipient identifier. When the holder presents a holder-binding proof
-   * (jwk or did kid), the resolved DID should be passed here so the
-   * `credentialSubject.id` is correctly bound. If unset, a `urn:uuid:` is
-   * minted as a placeholder.
+   * Subject identifier. When the holder presents a holder-binding proof
+   * (jwk or did kid), the resolved DID should be passed here so
+   * `credentialSubject.id` is correctly bound. Per OBv3 (§AchievementSubject)
+   * either `id` or at least one `identifier` MUST be supplied; if neither is
+   * provided a `urn:uuid:` is minted as a placeholder.
    */
   id?: string
+  /**
+   * Display name for the recipient. NOT emitted as `credentialSubject.name`
+   * (which is not an AchievementSubject property in the OBv3 data model).
+   * It is instead packed into `identifier[]` as
+   * `{ type:'IdentityObject', hashed:false, identityType:'name', identityHash:<name> }`.
+   */
   name?: string
-  /** Extra OBv3 identifier objects (e.g. email, sourcedId). */
-  identifiers?: Array<{ type?: string; identityType: string; identityHash?: string; hashed?: boolean; salt?: string; identityHashAlg?: string; identityValue?: string }>
-  /** Extra fields to merge onto credentialSubject (e.g. `givenName`). */
+  /** OBv3 IdentityObject entries (e.g. studentId via `sourcedId`, email, …). */
+  identifiers?: ObV3IdentityObject[]
+  /**
+   * Free-form extras merged onto credentialSubject. These are NOT part of
+   * the OBv3 AchievementSubject vocabulary; terms not defined in the OBv3
+   * JSON-LD context will be dropped during URDNA2015 canonicalization and
+   * therefore will not be covered by the proof. Use only for non-load-bearing
+   * fields that the issuing surface really needs to round-trip.
+   */
   extras?: Record<string, unknown>
 }
 
@@ -78,7 +107,6 @@ interface BuiltOpenBadgeCredential {
   issuer: Record<string, unknown>
   validFrom: string
   validUntil?: string
-  issuanceDate: string
   name?: string
   credentialSubject: Record<string, unknown>
 }
@@ -105,8 +133,28 @@ export function buildOpenBadgeCredential(opts: BuildOpenBadgeOptions): {
     credentialName,
   } = opts
 
-  const recipientId = recipient.id || `urn:uuid:${crypto.randomUUID()}`
   const achievementId = achievement.id || `urn:uuid:${crypto.randomUUID()}`
+
+  // Build OBv3 IdentityObject[] for credentialSubject.identifier. Recipient
+  // name (when provided) goes here as an IdentityObject with identityType
+  // 'name' — the OBv3 data model has no `name` property on AchievementSubject.
+  const identifierList: ObV3IdentityObject[] = []
+  if (recipient.name) {
+    identifierList.push({
+      type: 'IdentityObject',
+      hashed: false,
+      identityHash: recipient.name,
+      identityType: 'name',
+    })
+  }
+  if (recipient.identifiers && recipient.identifiers.length > 0) {
+    identifierList.push(...recipient.identifiers)
+  }
+
+  // Per OBv3 §AchievementSubject: "Either `id` or at least one `identifier`
+  // MUST be supplied." We satisfy this by either using the holder-bound `id`
+  // when present, otherwise minting a urn:uuid placeholder.
+  const recipientId = recipient.id || `urn:uuid:${crypto.randomUUID()}`
 
   const credentialSubject: Record<string, unknown> = {
     id: recipientId,
@@ -126,9 +174,9 @@ export function buildOpenBadgeCredential(opts: BuildOpenBadgeOptions): {
           ? { narrative: achievement.criteria }
           : achievement.criteria || { narrative: 'Criteria not specified' },
       ...(achievement.image && { image: normalizeImage(achievement.image) }),
+      ...(achievement.tag && achievement.tag.length > 0 && { tag: achievement.tag }),
     },
-    ...(recipient.name && { name: recipient.name }),
-    ...(recipient.identifiers && recipient.identifiers.length > 0 && { identifier: recipient.identifiers }),
+    ...(identifierList.length > 0 && { identifier: identifierList }),
     ...(recipient.extras || {}),
   }
 
@@ -151,7 +199,6 @@ export function buildOpenBadgeCredential(opts: BuildOpenBadgeOptions): {
       ...(issuer.image && { image: normalizeImage(issuer.image) }),
     },
     validFrom,
-    issuanceDate: validFrom,
     ...(validUntil && { validUntil }),
     ...(credentialName || (recipient.name && achievement.name)
       ? { name: credentialName || `${recipient.name} - ${achievement.name}` }

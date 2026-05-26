@@ -5,7 +5,9 @@ import cors from 'cors';
 import type { CorsOptions } from 'cors';
 import dotenv from 'dotenv';
 import { createHmac, randomUUID } from 'crypto';
-import { initializeAgentSystem, clearTenantAgentCache } from './services/agentService';
+import { initializeAgentSystem, clearTenantAgentCache, getAgent, getMainAgent, startAgentKeepalive, startMainAgentKeepalive } from './services/agentService';
+import { startOid4vciOfferSweeper } from './services/cleanup/oid4vciOfferSweeper';
+import { startPgKeepalive } from './db/keepalive';
 import { userTable, passwordResetTokensTable, initializeCredentialDesignerTables, initializeOid4vcTables, initializeInstitutionalTables } from './db/schema';
 import agentRoutes from './routes/agentRoutes';
 import connectionRoutes from './routes/connectionRoutes';
@@ -22,6 +24,7 @@ import demoRoutes from './routes/demoRoutes';
 import workflowRoutes from './routes/workflowRoutes';
 import signingRoutes from './routes/signingRoutes';
 import vaultRoutes from './routes/vaultRoutes';
+import vaultRestoreRoutes from './routes/vaultRestoreRoutes';
 import pdfSigningRoutes from './routes/pdfSigningRoutes';
 import webrtcRoutes from './routes/webrtcRoutes';
 // import groupRoutes from './routes/groupRoutes'; // Disabled: group-messaging package not available for Credo 0.6.x
@@ -190,6 +193,11 @@ app.use('/api/workflows', workflowRoutes);
 
 app.use('/api/signing', auth);
 app.use('/api/signing', signingRoutes);
+
+// Public restore-QR endpoint — MUST be mounted before the `/api/vaults`
+// auth middleware. A user trying to restore has lost their wallet and has
+// no JWT yet; the QR they scan is the very first interaction.
+app.use('/api/vaults', vaultRestoreRoutes);
 
 app.use('/api/vaults', auth);
 app.use('/api/vaults', vaultRoutes);
@@ -400,6 +408,38 @@ const startServer = async () => {
         console.error('Failed to initialize ESSI default agent:', essiError);
         console.log('Server is running but ESSI institutional issuance is not available');
       }
+
+      // Pre-warm the platform-tenant agent and the main (verifier-host) agent
+      // in the background. The first user-facing demo request currently pays
+      // a 500ms-2s Askar wallet-open cost; doing it at startup makes the
+      // first QR feel instant.
+      const platformTenantId = process.env.PLATFORM_TENANT_ID;
+      if (platformTenantId) {
+        (async () => {
+          const t0 = Date.now();
+          try {
+            await Promise.all([
+              getAgent({ tenantId: platformTenantId }),
+              getMainAgent(),
+            ]);
+            console.log(`[Warmup] Demo agents ready in ${Date.now() - t0}ms`);
+          } catch (warmErr) {
+            console.warn('[Warmup] Demo agent pre-warm failed (will warm on first request):', (warmErr as Error)?.message || warmErr);
+          }
+
+          // Background keepalives — once the warmup has populated the caches,
+          // poke each connection every minute so DO Postgres doesn't close
+          // them out from under us during idle.
+          startAgentKeepalive(platformTenantId);
+          startMainAgentKeepalive();
+        })();
+      }
+
+      // App-pool Postgres keepalive (independent of the Askar wallet pool).
+      startPgKeepalive();
+
+      // Schedule periodic cleanup of expired oid4vci_pending_offers rows.
+      startOid4vciOfferSweeper();
     } catch (agentError) {
       console.error('Failed to initialize agent system:', agentError);
       console.log('Server is running but agent system is not available');

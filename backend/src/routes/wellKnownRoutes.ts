@@ -514,9 +514,9 @@ export function createIssuerRoutes(): Router {
       // DEMO: Inject dummy credentials if this is the platform tenant
       if (tenantId === PLATFORM_TENANT_ID) {
         const demoSdJwtConfigs = [
-          { id: 'StudentID', name: 'Student ID', attrs: ['given_name', 'family_name', 'student_id', 'university', 'program', 'enrollment_year', 'expiry_date'] },
-          { id: 'ProfessionalLicense', name: 'Professional License', attrs: ['given_name', 'family_name', 'license_number', 'profession', 'issuing_authority', 'issue_date', 'expiry_date'] },
-          { id: 'EmployeeBadge', name: 'Employee Badge', attrs: ['given_name', 'family_name', 'employee_id', 'department', 'job_title', 'company', 'issue_date'] },
+          { id: 'StudentID', name: 'Student ID', attrs: ['given_name', 'family_name', 'student_id', 'university', 'program', 'enrollment_year', 'expiry_date', 'picture'] },
+          { id: 'ProfessionalLicense', name: 'Professional License', attrs: ['given_name', 'family_name', 'license_number', 'profession', 'issuing_authority', 'issue_date', 'expiry_date', 'picture'] },
+          { id: 'EmployeeBadge', name: 'Employee Badge', attrs: ['given_name', 'family_name', 'employee_id', 'department', 'job_title', 'company', 'issue_date', 'picture'] },
           { id: 'HealthInsurance', name: 'Health Insurance', attrs: ['given_name', 'family_name', 'member_id', 'plan_name', 'insurer', 'group_number', 'effective_date'] },
           { id: 'LoyaltyMembership', name: 'Loyalty Membership', attrs: ['given_name', 'family_name', 'member_id', 'tier', 'points', 'joined_date', 'program_name'] },
           { id: 'AgeVerification', name: 'Age Verification', attrs: ['given_name', 'family_name', 'birth_date', 'over_18', 'over_21', 'nationality'] }
@@ -525,7 +525,8 @@ export function createIssuerRoutes(): Router {
         const demoObv3Configs = [
           { id: 'AcademicExcellence', name: "Dean's List for Academic Excellence", desc: 'Awarded for maintaining a GPA of 3.8 or higher during the academic year.' },
           { id: 'SkillsCertification', name: 'Cloud Computing Specialist', desc: 'Professional certification demonstrating proficiency in cloud architecture and deployment.' },
-          { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' }
+          { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' },
+          { id: 'Diploma', name: 'Bachelor of Science in Computer Science', desc: 'OBv3 academic diploma — four-year undergraduate degree with Magna Cum Laude honors.' }
         ];
 
         const demoEndorsementConfigs = [

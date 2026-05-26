@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { getAgent, getMainAgent } from '../services/agentService';
+import { getMainAgent, withAgent, withMainAgent } from '../services/agentService';
 import { OpenId4VcVerifierApi } from '@credo-ts/openid4vc';
 import { ensureDidKeyForW3c } from '../services/oid4vci/w3cIssuance';
 import { demoLdpVpSessions } from './demoOid4vpInterceptor';
 import crypto from 'crypto';
 import { StateStore } from '../services/redis/stateStore';
-import { db } from '../db/driver';
 import { MDL_DOCTYPE } from '../utils/mdlUtils';
+import { getPortraitDataUri } from '../services/oid4vci/portraits';
 
 const router = Router();
 const DEMO_TENANT_ID = process.env.PLATFORM_TENANT_ID;
@@ -78,7 +78,10 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
         university: 'Digital University',
         program: 'Computer Science',
         enrollment_year: '2023',
-        expiry_date: '2027-06-30'
+        expiry_date: '2027-06-30',
+        // SD-JWT VC `picture` claim — base64 JPEG data URI. Matches the
+        // EUDI PID convention so existing wallets render it as a portrait.
+        picture: getPortraitDataUri('alice')
       };
     }
   },
@@ -94,7 +97,8 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
         profession: 'Lawyer',
         issuing_authority: 'State Bar Association',
         issue_date: '2020-05-15',
-        expiry_date: '2025-05-15'
+        expiry_date: '2025-05-15',
+        picture: getPortraitDataUri('joyce')
       };
     }
   },
@@ -110,7 +114,8 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
         department: 'Engineering',
         job_title: 'Senior Developer',
         company: 'Tech Corp',
-        issue_date: '2022-01-10'
+        issue_date: '2022-01-10',
+        picture: getPortraitDataUri('bob')
       };
     }
   },
@@ -201,6 +206,46 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
       description: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.',
       criteria: { narrative: 'Completed all course modules and the final capstone project.' }
     }
+  },
+  // OBv3 Diploma — Bachelor of Science. Strictly maps to the OBv3 data model:
+  //   - recipient name + student_id → AchievementSubject.identifier[]
+  //     (IdentityObject with identityType 'name' / 'sourcedId')
+  //   - "Magna Cum Laude" honors baked into Achievement.name (no spec field
+  //     for honors; closest analogue is `specialization`, but the verifier
+  //     would show "specialization: Magna Cum Laude" which is awkward).
+  //   - Skills → Achievement.tag (OBv3 spec property).
+  //   - Conferral date → credential `validFrom`.
+  //   - Date of birth: deliberately NOT emitted — OBv3 has no AchievementSubject
+  //     field for it, and adding a custom term would silently fall out of the
+  //     URDNA2015 canonical form and therefore out from under the proof.
+  'Diploma': {
+    format: 'openbadge_v3' as const,
+    credentialConfigurationId: 'Diploma',
+    generateData: (name: string) => ({
+      name: name || 'Alice Johnson',
+      student_id: 'STU-2020-4451',
+      date_conferred: '2024-05-17',
+    }),
+    achievement: {
+      id: `urn:uuid:${crypto.randomUUID()}`,
+      type: ['Achievement'],
+      achievementType: 'Diploma',
+      name: 'Bachelor of Science in Computer Science — Magna Cum Laude',
+      description:
+        'Four-year undergraduate degree covering algorithms, systems, theory of computation, and software engineering. Awarded with Magna Cum Laude honors.',
+      criteria: {
+        narrative:
+          '- Completed 120 credit hours of approved coursework\n' +
+          '- Cumulative GPA of 3.70 or higher across all semesters\n' +
+          '- Defended a senior capstone project',
+      },
+      tag: [
+        'Algorithms',
+        'Distributed Systems',
+        'Machine Learning',
+        'Software Engineering',
+      ],
+    },
   },
   // OBv3 EndorsementCredential — third-party endorsement of an existing
   // achievement. The endorsedEntity here is the AcademicExcellence
@@ -318,7 +363,10 @@ const DEMO_CREDENTIAL_TYPES: Record<string, any> = {
         ],
         age_over_18: true,
         age_over_21: true,
-        portrait: '',  // wallets gracefully handle missing portrait
+        // ISO 18013-5 §7.2.1 `portrait` (bstr): JPEG bytes of the holder.
+        // `buildMdocNamespaces` strips the data-URI prefix and decodes to a
+        // Buffer for CBOR encoding. Falls back to '' (omitted by builder).
+        portrait: getPortraitDataUri('alice') ?? '',
       };
     }
   }
@@ -350,17 +398,19 @@ router.post('/oid4vc-offer', async (req: Request, res: Response) => {
     
     const credentialData = config.generateData(recipientName || '');
     
-    // For OBv3, we must ensure the issuer key binding exists.
+    // For OBv3, we must ensure the issuer key binding exists. Wrap in
+    // withAgent so a stale Askar session after idle is transparently
+    // recovered (one retry on a fresh agent) instead of failing the offer.
     if (config.format === 'openbadge_v3') {
       try {
-        const agent = await getAgent({ tenantId: DEMO_TENANT_ID });
-        const openbadgesApi = (agent.modules as any)?.openbadges;
-        if (openbadgesApi) {
+        await withAgent(DEMO_TENANT_ID, async (agent) => {
+          const openbadgesApi = (agent.modules as any)?.openbadges;
+          if (!openbadgesApi) return;
           const hostname = new URL(apiBaseUrl).host;
           const issuerDid = `did:web:${hostname}:issuers:${DEMO_TENANT_ID}`;
           const verificationMethod = `${issuerDid}#key-0`;
           await openbadgesApi.ensureBinding(issuerDid, verificationMethod);
-        }
+        });
       } catch (e: any) {
         console.warn('Demo OBv3 ensureBinding failed:', e.message);
       }
@@ -384,23 +434,12 @@ router.post('/oid4vc-offer', async (req: Request, res: Response) => {
 
     await pendingOffers.set(offerId, offer);
 
-    // Also persist to DB just in case
-    try {
-      await db.query(`
-        INSERT INTO oid4vci_pending_offers (
-          id, tenant_id, credential_definition_id, credential_configuration_id,
-          credential_data, pre_authorized_code, status, format, achievement, expires_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `, [
-        offerId, DEMO_TENANT_ID, offer.credentialDefinitionId, offer.credentialConfigurationId,
-        JSON.stringify(credentialData), preAuthorizedCode, 'pending',
-        config.format,
-        offer.achievement ? JSON.stringify(offer.achievement) : null,
-        offer.expiresAt,
-      ]);
-    } catch (dbError: any) {
-      console.warn('Failed to persist demo offer to database:', dbError.message);
-    }
+    // No DB persistence for demo offers: the demo tenant id `essi-main-wallet`
+    // is a string while `oid4vci_pending_offers.tenant_id` is `uuid`, so any
+    // INSERT here is rejected by Postgres with `invalid input syntax for type
+    // uuid`. The Redis StateStore is the canonical store for the demo flow
+    // (10-minute TTL handles cleanup) and the wire-facing oid4vciRoutes
+    // hydrates from it directly, so the DB write was always dead weight.
 
     const issuerUrl = `${apiBaseUrl}/issuers/${DEMO_TENANT_ID}`;
     const credentialOfferUri = buildCredentialOfferUri(issuerUrl, preAuthorizedCode, config.credentialConfigurationId);
@@ -449,26 +488,8 @@ router.get('/oid4vc-offer/:offerId/status', async (req: Request, res: Response) 
       });
     }
 
-    try {
-      const result = await db.query(
-        'SELECT * FROM oid4vci_pending_offers WHERE id = $1 AND tenant_id = $2',
-        [offerId, DEMO_TENANT_ID]
-      );
-
-      if (result.rows.length > 0) {
-        const dbOffer = result.rows[0];
-        return res.json({
-          success: true,
-          offerId: dbOffer.id,
-          status: dbOffer.status,
-          createdAt: dbOffer.created_at,
-          expiresAt: dbOffer.expires_at,
-        });
-      }
-    } catch (dbError) {
-      // ignore
-    }
-
+    // No DB fallback: demo offers live exclusively in Redis (see comment in
+    // createOffer). If StateStore has expired the row, the offer is gone.
     res.status(404).json({
       error: 'not_found',
       error_description: 'Offer not found'
@@ -510,6 +531,7 @@ type VerifiableType =
   | 'SkillsCertification'
   | 'CourseCompletion'
   | 'AcademicEndorsement'
+  | 'Diploma'
   | 'AlumniCredential'
   | 'VolunteerCertificate'
   | 'EventTicket'
@@ -541,6 +563,7 @@ const VERIFIABLE_CREDENTIALS: Record<VerifiableType, VerifiableSpec> = {
   SkillsCertification: { id: 'SkillsCertification', name: 'Skills Certification',   format: 'ldp_vc',       vcType: 'OpenBadgeCredential',  attributes: [] },
   CourseCompletion:    { id: 'CourseCompletion',    name: 'Course Completion',      format: 'ldp_vc',       vcType: 'OpenBadgeCredential',  attributes: [] },
   AcademicEndorsement: { id: 'AcademicEndorsement', name: 'Academic Endorsement',   format: 'ldp_vc',       vcType: 'EndorsementCredential', attributes: [] },
+  Diploma:             { id: 'Diploma',             name: 'BSc Diploma',            format: 'ldp_vc',       vcType: 'OpenBadgeCredential',  attributes: [] },
   AlumniCredential:    { id: 'AlumniCredential',    name: 'Alumni Credential',      format: 'ldp_vc',       vcType: 'AlumniCredential',     attributes: ['given_name', 'family_name', 'degree', 'alma_mater'] },
   VolunteerCertificate:{ id: 'VolunteerCertificate',name: 'Volunteer Certificate',  format: 'ldp_vc',       vcType: 'VolunteerCertificate', attributes: ['given_name', 'family_name', 'organization', 'role'] },
   EventTicket:         { id: 'EventTicket',         name: 'Event Ticket',           format: 'jwt_vc_json',  vcType: 'EventTicket',          attributes: ['given_name', 'family_name', 'event_name', 'seat'] },
@@ -569,6 +592,25 @@ async function ensureDemoVerifier(agent: any): Promise<string> {
     });
   }
   return DEMO_VERIFIER_ID;
+}
+
+/**
+ * Cached did:key used to sign demo OID4VP authorization requests.
+ *
+ * Without this cache, every `/oid4vp-request` POST calls
+ * `ensureDidKeyForW3c` → `agent.dids.getCreatedDids({})` which is a full scan
+ * of every DID the wallet has ever created. As issuance flows accumulate
+ * DIDs (OBv3 bindings, holder bindings, etc.) the scan grows O(n) and the
+ * QR generation slows down visibly. We only need one stable signing key for
+ * the demo verifier, so resolve it once and reuse it for the process
+ * lifetime.
+ */
+let demoVerifierVmId: string | undefined;
+async function getDemoVerifierVmId(agent: any): Promise<string> {
+  if (demoVerifierVmId) return demoVerifierVmId;
+  const { vmId } = await ensureDidKeyForW3c(agent, 'Ed25519');
+  demoVerifierVmId = vmId;
+  return vmId;
 }
 
 /**
@@ -718,48 +760,50 @@ router.post('/oid4vp-request', async (req: Request, res: Response) => {
 
   try {
     // OID4VC Verifier module is registered on the root (main) agent, not on
-    // per-tenant agents. Use getMainAgent() so agent.modules.openId4VcVerifier
-    // exists.
-    const agent = await getMainAgent();
-    const verifierId = await ensureDemoVerifier(agent);
+    // per-tenant agents. withMainAgent gives us auto-recovery from a stale
+    // Askar session (one transparent retry on a fresh main agent) so an idle
+    // pod doesn't return 500 on the first QR request after a quiet period.
+    await withMainAgent(async (agent) => {
+      const verifierId = await ensureDemoVerifier(agent);
 
-    const definition = buildPresentationDefinitionFor(spec);
+      const definition = buildPresentationDefinitionFor(spec);
 
-    // Sign the request with a did:key so Credo hosts it via request_uri
-    // instead of inlining the (huge) request payload. An inline request with
-    // client_metadata + presentation_definition typically exceeds 2.5 KB,
-    // which overflows QR encoder capacity. Signed request_uri mode keeps the
-    // QR small.
-    const { vmId } = await ensureDidKeyForW3c(agent, 'Ed25519');
+      // Sign the request with a did:key so Credo hosts it via request_uri
+      // instead of inlining the (huge) request payload. An inline request with
+      // client_metadata + presentation_definition typically exceeds 2.5 KB,
+      // which overflows QR encoder capacity. Signed request_uri mode keeps the
+      // QR small. Uses a process-cached did:key — see getDemoVerifierVmId.
+      const vmId = await getDemoVerifierVmId(agent);
 
-    const result = await getVerifierApi(agent).createAuthorizationRequest({
-      verifierId,
-      requestSigner: { method: 'did', didUrl: vmId },
-      presentationExchange: { definition },
-      // mdoc forces `direct_post.jwt` (Credo enforces ISO 18013-7 across
-      // all draft versions — `direct_post` with mdoc is rejected with
-      // "ISO 18013-7 requires the usage of response mode 'direct_post.jwt'").
-      // Bifold/Credo-0.5's encrypted-response code path fails after building
-      // the mdoc VP, so the mDL Verify flow is currently broken end-to-end
-      // — known wallet-side limitation, not an issuer bug.
-      // Other formats stay on plain `direct_post`.
-      responseMode: spec.format === 'mso_mdoc' ? 'direct_post.jwt' : 'direct_post',
-      // Use `v1.draft21` for ALL formats: bifold runs Credo 0.5 with an older
-      // Sphereon SIOP library that throws "The SIOP spec version could not
-      // inferred from the authentication request payload" when handed a
-      // `v1.draft24` request. Draft-21 is the highest version bifold's
-      // version sniffer recognizes today. Once bifold ships with Credo 0.6+
-      // we can bump non-mdoc back to `v1.draft24` / `v1`.
-      version: 'v1.draft21',
-    });
+      const result = await getVerifierApi(agent).createAuthorizationRequest({
+        verifierId,
+        requestSigner: { method: 'did', didUrl: vmId },
+        presentationExchange: { definition },
+        // mdoc forces `direct_post.jwt` (Credo enforces ISO 18013-7 across
+        // all draft versions — `direct_post` with mdoc is rejected with
+        // "ISO 18013-7 requires the usage of response mode 'direct_post.jwt'").
+        // Bifold/Credo-0.5's encrypted-response code path fails after building
+        // the mdoc VP, so the mDL Verify flow is currently broken end-to-end
+        // — known wallet-side limitation, not an issuer bug.
+        // Other formats stay on plain `direct_post`.
+        responseMode: spec.format === 'mso_mdoc' ? 'direct_post.jwt' : 'direct_post',
+        // Use `v1.draft21` for ALL formats: bifold runs Credo 0.5 with an older
+        // Sphereon SIOP library that throws "The SIOP spec version could not
+        // inferred from the authentication request payload" when handed a
+        // `v1.draft24` request. Draft-21 is the highest version bifold's
+        // version sniffer recognizes today. Once bifold ships with Credo 0.6+
+        // we can bump non-mdoc back to `v1.draft24` / `v1`.
+        version: 'v1.draft21',
+      });
 
-    res.status(201).json({
-      success: true,
-      sessionId: result.verificationSession.id,
-      authorizationRequestUri: result.authorizationRequest,
-      credentialType: spec.id,
-      format: spec.format,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      res.status(201).json({
+        success: true,
+        sessionId: result.verificationSession.id,
+        authorizationRequestUri: result.authorizationRequest,
+        credentialType: spec.id,
+        format: spec.format,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      });
     });
   } catch (error: any) {
     console.error('Error creating demo OID4VP request:', error);
