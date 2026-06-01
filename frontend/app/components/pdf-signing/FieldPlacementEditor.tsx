@@ -106,13 +106,13 @@ export default function FieldPlacementEditor({
   const signatureFieldCount = fields.filter((f) => f.type === 'signature').length
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col !mt-0">
+    <div className="fixed inset-0 z-50 bg-surface-50 flex flex-col !mt-0">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-3 bg-bg-secondary border-b border-border-primary">
+      <div className="flex items-center justify-between px-4 py-3 bg-surface-100 border-b border-border-primary">
         <div className="flex items-center gap-3">
           <button
             onClick={onCancel}
-            className="px-3 py-1.5 rounded text-sm text-text-secondary hover:bg-bg-tertiary"
+            className="px-3 py-1.5 rounded text-sm text-text-secondary hover:bg-surface-200"
           >
             Cancel
           </button>
@@ -128,7 +128,7 @@ export default function FieldPlacementEditor({
           <button
             onClick={() => onComplete(fields)}
             disabled={signatureFieldCount === 0}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-accent-primary text-black hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-accent-primary text-white hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Done - Send for Signing
           </button>
@@ -138,13 +138,13 @@ export default function FieldPlacementEditor({
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <div className="w-64 p-4 bg-bg-secondary border-r border-border-primary overflow-y-auto">
+        <div className="w-64 p-4 bg-surface-100 border-r border-border-primary overflow-y-auto">
           <FieldPalette />
         </div>
 
         {/* PDF viewer area */}
         <div
-          className="relative flex-1 overflow-auto p-6 bg-bg-tertiary/50 flex justify-center"
+          className="relative flex-1 overflow-auto p-6 bg-surface-200 flex justify-center"
           onClick={() => {
             setActiveFieldId(null)
             setContextMenu((prev) => ({ ...prev, open: false }))
@@ -202,18 +202,18 @@ export default function FieldPlacementEditor({
 
           {contextMenu.open && (
             <div
-              className="fixed z-50 w-48 rounded-lg border border-neutral-200 bg-white shadow-lg"
+              className="fixed z-50 w-48 rounded-lg border border-border-primary bg-surface-100 shadow-lg"
               style={{ left: contextMenu.x + 12, top: contextMenu.y + 12 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="px-3 pt-3 pb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              <div className="px-3 pt-3 pb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
                 Place Field
               </div>
               {(['signature', 'initials', 'name', 'date', 'note', 'stamp', 'text', 'number', 'drawing', 'formula', 'email'] as FieldType[]).map((type) => (
                 <button
                   key={type}
                   type="button"
-                  className="w-full text-left px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-100"
+                  className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-200"
                   onClick={() => {
                     placeFieldAt(type, contextMenu.page, contextMenu.pageX, contextMenu.pageY, contextMenu.dims)
                     setContextMenu((prev) => ({ ...prev, open: false }))
@@ -224,7 +224,7 @@ export default function FieldPlacementEditor({
               ))}
               <button
                 type="button"
-                className="w-full text-left px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-100"
+                className="w-full text-left px-3 py-2 text-sm text-text-tertiary hover:bg-surface-200"
                 onClick={() => setContextMenu((prev) => ({ ...prev, open: false }))}
               >
                 Cancel
@@ -236,7 +236,7 @@ export default function FieldPlacementEditor({
         {/* Right sidebar */}
         <div className="relative flex h-full">
           {showPagesPanel && totalPages > 1 && (
-            <div className="w-48 bg-bg-secondary border-l border-border-primary p-3 overflow-y-auto">
+            <div className="w-48 bg-surface-100 border-l border-border-primary p-3 overflow-y-auto">
               <div className="flex items-center gap-2 mb-2 text-text-secondary">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 4h9l3 3v13H6z" />
@@ -326,7 +326,7 @@ export default function FieldPlacementEditor({
                     className={`text-left text-sm px-2 py-1 rounded ${
                       currentPage === i
                         ? 'bg-accent-primary/20 text-accent-primary font-medium'
-                        : 'text-text-secondary hover:bg-bg-tertiary'
+                        : 'text-text-secondary hover:bg-surface-200'
                     }`}
                   >
                     Page {i + 1}
@@ -340,7 +340,7 @@ export default function FieldPlacementEditor({
               </div>
             </div>
           )}
-          <div className="w-12 bg-bg-secondary border-l border-border-primary flex flex-col items-center py-3 gap-2">
+          <div className="w-12 bg-surface-100 border-l border-border-primary flex flex-col items-center py-3 gap-2">
             <button
               type="button"
               title="Search"
@@ -351,7 +351,7 @@ export default function FieldPlacementEditor({
                   return next
                 })
               }}
-              className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+              className="w-9 h-9 rounded-lg border border-border-primary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-secondary flex items-center justify-center"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -361,10 +361,10 @@ export default function FieldPlacementEditor({
               type="button"
               title="View Pages"
               onClick={() => setShowPagesPanel((prev) => !prev)}
-              className={`w-9 h-9 rounded-lg border bg-white flex items-center justify-center ${
+              className={`w-9 h-9 rounded-lg border bg-surface-50 flex items-center justify-center ${
                 showPagesPanel
-                  ? 'border-border-primary text-text-primary'
-                  : 'border-border-secondary text-text-secondary hover:text-text-primary hover:border-border-primary'
+                  ? 'border-border-secondary text-text-primary'
+                  : 'border-border-primary text-text-secondary hover:text-text-primary hover:border-border-secondary'
               }`}
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -377,7 +377,7 @@ export default function FieldPlacementEditor({
                 type="button"
                 title="Zoom Out"
                 onClick={() => setScale((prev) => Math.max(0.25, Math.round((prev - 0.15) * 100) / 100))}
-                className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+                className="w-9 h-9 rounded-lg border border-border-primary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-secondary flex items-center justify-center"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14" />
@@ -387,7 +387,7 @@ export default function FieldPlacementEditor({
                 type="button"
                 title="Zoom In"
                 onClick={() => setScale((prev) => Math.min(3, Math.round((prev + 0.15) * 100) / 100))}
-                className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+                className="w-9 h-9 rounded-lg border border-border-primary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-secondary flex items-center justify-center"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 5v14M5 12h14" />

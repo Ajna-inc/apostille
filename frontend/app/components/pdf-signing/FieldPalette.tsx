@@ -72,32 +72,32 @@ const PALETTE_GROUPS: {
   {
     title: 'Sign',
     items: [
-      { type: 'signature', icon: <IconSignature />, accent: 'text-yellow-700' },
-      { type: 'initials', icon: <IconInitials />, accent: 'text-blue-700' },
-      { type: 'stamp', icon: <IconStamp />, accent: 'text-rose-700' },
-      { type: 'drawing', icon: <IconDrawing />, accent: 'text-indigo-700' },
+      { type: 'signature', icon: <IconSignature />, accent: 'text-yellow-600 dark:text-yellow-400' },
+      { type: 'initials', icon: <IconInitials />, accent: 'text-blue-600 dark:text-blue-400' },
+      { type: 'stamp', icon: <IconStamp />, accent: 'text-rose-600 dark:text-rose-400' },
+      { type: 'drawing', icon: <IconDrawing />, accent: 'text-indigo-600 dark:text-indigo-400' },
     ],
   },
   {
     title: 'Identity',
     items: [
-      { type: 'name', icon: <IconUser />, accent: 'text-purple-700' },
-      { type: 'email', icon: <IconEmail />, accent: 'text-teal-700' },
+      { type: 'name', icon: <IconUser />, accent: 'text-purple-600 dark:text-purple-400' },
+      { type: 'email', icon: <IconEmail />, accent: 'text-teal-600 dark:text-teal-400' },
     ],
   },
   {
     title: 'Dates & Numbers',
     items: [
-      { type: 'date', icon: <IconDate />, accent: 'text-green-700' },
-      { type: 'number', icon: <IconNumber />, accent: 'text-emerald-700' },
+      { type: 'date', icon: <IconDate />, accent: 'text-green-600 dark:text-green-400' },
+      { type: 'number', icon: <IconNumber />, accent: 'text-emerald-600 dark:text-emerald-400' },
     ],
   },
   {
     title: 'Text & Notes',
     items: [
-      { type: 'text', icon: <IconText />, accent: 'text-cyan-700' },
-      { type: 'note', icon: <IconNote />, accent: 'text-orange-700' },
-      { type: 'formula', icon: <IconFormula />, accent: 'text-slate-700' },
+      { type: 'text', icon: <IconText />, accent: 'text-cyan-600 dark:text-cyan-400' },
+      { type: 'note', icon: <IconNote />, accent: 'text-orange-600 dark:text-orange-400' },
+      { type: 'formula', icon: <IconFormula />, accent: 'text-text-secondary' },
     ],
   },
 ]
@@ -120,7 +120,7 @@ export default function FieldPalette() {
       </div>
 
       {PALETTE_GROUPS.map((group) => (
-        <div key={group.title} className="bg-white rounded-xl border border-border-secondary p-3 shadow-sm">
+        <div key={group.title} className="bg-surface-300 rounded-xl border border-border-primary p-3 shadow-sm">
           <div className="mb-2">
             <div className="text-sm font-semibold text-text-primary">{group.title}</div>
             {group.description && (
@@ -133,7 +133,7 @@ export default function FieldPalette() {
                 key={type}
                 draggable
                 onDragStart={(e) => handleDragStart(e, type)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border-secondary bg-bg-secondary hover:bg-bg-tertiary cursor-grab active:cursor-grabbing select-none text-sm transition-colors"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border-primary bg-surface-50 hover:bg-surface-200 cursor-grab active:cursor-grabbing select-none text-sm transition-colors"
               >
                 <span className={`flex items-center justify-center w-5 h-5 ${accent}`}>{icon}</span>
                 <span className="font-medium text-text-primary">{FIELD_LABELS[type]}</span>
