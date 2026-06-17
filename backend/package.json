@@ -29,11 +29,11 @@
   "dependencies": {
     "@ajna-inc/calendar": "0.1.0",
     "@ajna-inc/group-messaging": "0.1.2",
-    "@ajna-inc/openbadges": "0.6.1",
+    "@ajna-inc/openbadges": "0.6.3",
     "@ajna-inc/payments": "0.6.1",
     "@ajna-inc/poe": "0.6.1",
     "@ajna-inc/signing": "0.6.1",
-    "@ajna-inc/vaults": "0.6.2",
+    "@ajna-inc/vaults": "^0.7.3",
     "@ajna-inc/webrtc": "0.6.1",
     "@ajna-inc/workflow": "0.6.82",
     "@ajna-inc/workflow-backend-express": "workspace:*",

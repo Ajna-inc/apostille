@@ -16,7 +16,9 @@ import {
 } from '../services/oid4vci/anonCredsIssuance'
 import type { AnonCredsCredentialOffer } from '@credo-ts/anoncreds'
 import { issueOpenBadgeCredential } from '../services/oid4vci/openBadgeIssuance'
+import { issueEndorsementCredential } from '../services/oid4vci/endorsementIssuance'
 import { signJwtVc, signLdpVc, ensureDidKeyForW3c } from '../services/oid4vci/w3cIssuance'
+import { issueJsonLdCredential } from '../services/oid4vci/jsonLdIssuance'
 import { OpenBadgesKeyBindingRepository } from '@ajna-inc/openbadges'
 
 const router = Router()
@@ -54,6 +56,17 @@ interface PendingOffer {
   vcContexts?: string[]
   vcTypes?: string[]
   achievement?: Record<string, any>
+  /**
+   * OBv3 EndorsementCredential payload (third-party endorsement of an
+   * achievement/profile). When set, the openbadge_v3 dispatch branch in the
+   * credential endpoint will call `issueEndorsementCredential` instead of
+   * `issueOpenBadgeCredential`.
+   */
+  endorsement?: {
+    endorsedEntity: string
+    endorsementComment?: string
+    issuerProfile?: Record<string, any>
+  }
   proofSuite?: string
   signingAlg?: string
   wireTrace?: WireTrace
@@ -770,19 +783,25 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
       // Resolve schema attributes (best-effort) for non-OBv3 formats so we
       // can pass `credentialSubject` claims to the W3C signer.
       let claimAttrs: string[] = []
-      try {
-        const credDefResult = await db.query(
-          'SELECT schema_attributes FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
-          [offer.credentialDefinitionId, tenantId]
-        )
-        if (credDefResult.rows.length > 0) {
-          const row = credDefResult.rows[0]
-          claimAttrs = Array.isArray(row.schema_attributes)
-            ? row.schema_attributes
-            : JSON.parse(row.schema_attributes || '[]')
+      // Demo offers (id prefix `demo-`) never have a cred-def row, and the
+      // platform tenant id is a string not a uuid → the lookup throws on
+      // every request. Short-circuit to skip the round-trip + Postgres error.
+      const isDemoOffer = offer.credentialDefinitionId?.startsWith('demo-')
+      if (!isDemoOffer) {
+        try {
+          const credDefResult = await db.query(
+            'SELECT schema_attributes FROM credential_definitions WHERE credential_definition_id = $1 AND tenant_id = $2',
+            [offer.credentialDefinitionId, tenantId]
+          )
+          if (credDefResult.rows.length > 0) {
+            const row = credDefResult.rows[0]
+            claimAttrs = Array.isArray(row.schema_attributes)
+              ? row.schema_attributes
+              : JSON.parse(row.schema_attributes || '[]')
+          }
+        } catch (e: any) {
+          console.warn(`[${offer.format}] Schema-attrs lookup failed:`, e.message)
         }
-      } catch (e: any) {
-        console.warn(`[${offer.format}] Schema-attrs lookup failed:`, e.message)
       }
 
       const credentialSubjectClaims: Record<string, any> = {}
@@ -808,6 +827,52 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
           const recipient = offer.credentialData || {}
 
           const verificationMethod = `${issuerDid}#key-0`
+
+          // OBv3 EndorsementCredential branch — third-party endorsement of an
+          // existing achievement/profile. Signed on the same key as the
+          // tenant's regular OBv3 AchievementCredentials.
+          if (offer.endorsement) {
+            const endorser = offer.endorsement.issuerProfile || {}
+            const { credential: endorsementCred } = await issueEndorsementCredential(agent, {
+              endorsedEntity:
+                offer.endorsement.endorsedEntity ||
+                (recipient as any).endorsedEntity,
+              endorsementComment:
+                offer.endorsement.endorsementComment ||
+                (recipient as any).endorsementComment,
+              issuerProfile: {
+                id: endorser.id || issuerDid,
+                type: endorser.type || 'Profile',
+                name:
+                  endorser.name ||
+                  (recipient as any).endorserName ||
+                  process.env.ISSUER_NAME,
+                url: endorser.url || process.env.ISSUER_URL,
+                description: endorser.description,
+                image: endorser.image,
+              },
+              verificationMethod,
+            })
+
+            const responseBody = {
+              format: 'ldp_vc',
+              credential: endorsementCred,
+              c_nonce: cNonceForNext,
+              c_nonce_expires_in: 300,
+            }
+
+            offer.status = 'credential_issued'
+            offer.cNonce = cNonceForNext
+            if (offer.wireTrace) offer.wireTrace.credentialResponse = responseBody
+            await pendingOffers.set(offer.id, offer)
+            try {
+              await db.query(
+                `UPDATE oid4vci_pending_offers SET status = 'credential_issued', issued_at = NOW(), c_nonce = $2 WHERE id = $1`,
+                [offer.id, cNonceForNext],
+              )
+            } catch (e) { console.warn('Endorsement offer update failed:', e) }
+            return res.json(responseBody)
+          }
           const openbadgesApi = (agent.modules as any)?.openbadges
           if (!openbadgesApi) {
             throw new Error('OpenBadges module not configured on tenant agent')
@@ -832,6 +897,32 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
             }
           }
 
+          // Build OBv3 IdentityObject[] entries from well-known credentialData
+          // fields. Per OBv3 §IdentityObject (additionalProperties:false), each
+          // entry MUST have {type:'IdentityObject', hashed, identityHash, identityType}.
+          const extraIdentifiers: any[] = Array.isArray((recipient as any).identifiers)
+            ? [...(recipient as any).identifiers]
+            : []
+          if ((recipient as any).student_id) {
+            extraIdentifiers.push({
+              type: 'IdentityObject',
+              hashed: false,
+              identityHash: String((recipient as any).student_id),
+              // `sourcedId` is the closest OBv3 IdentifierTypeEnum value for
+              // an institutional student-record ID; per spec "studentId" is
+              // not in the enum.
+              identityType: 'sourcedId',
+            })
+          }
+          if ((recipient as any).email) {
+            extraIdentifiers.push({
+              type: 'IdentityObject',
+              hashed: false,
+              identityHash: String((recipient as any).email),
+              identityType: 'emailAddress',
+            })
+          }
+
           const { credential: obCredential } = await issueOpenBadgeCredential(agent, {
             achievement: {
               id: (recipient as any).achievementId || (achievementSrc as any).id,
@@ -844,6 +935,9 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
                   ? { narrative: (recipient as any).achievementCriteria }
                   : (achievementSrc as any).criteria,
               image: (recipient as any).achievementImage || (achievementSrc as any).image,
+              // OBv3 Achievement.tag — array of keywords / skills. In spec
+              // (Achievement properties include `tag`).
+              tag: (recipient as any).achievementTag || (achievementSrc as any).tag,
             },
             issuer: {
               id: issuerDid,
@@ -853,9 +947,14 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
             recipient: {
               id: holderDidLocal || (recipient as any).recipientDid,
               name: (recipient as any).recipientName || (recipient as any).name,
-              identifiers: (recipient as any).identifiers,
+              identifiers: extraIdentifiers.length > 0 ? extraIdentifiers : undefined,
               extras: claimAttrs.length > 0 ? credentialSubjectClaims : undefined,
             },
+            // Honor a recipient-supplied conferral / award date (e.g. for a
+            // diploma issued for a past date). Falls back to "now" if absent.
+            validFrom: (recipient as any).date_conferred
+              ? new Date((recipient as any).date_conferred).toISOString()
+              : undefined,
             verificationMethod,
           })
 
@@ -891,14 +990,56 @@ router.post('/:tenantId/credential', async (req: Request, res: Response) => {
         }
 
         if (offer.format === 'ldp_vc') {
-          const { credential } = await signLdpVc(agent, {
-            types,
-            issuerDid,
-            verificationMethod: vmId,
-            credentialSubject,
-            contexts,
-            proofType: offer.proofSuite || 'Ed25519Signature2020',
-          })
+          // Default to DataIntegrityProof + eddsa-rdfc-2022 — the only ldp_vc
+          // cryptosuite bifold v2 verifies. Tenants that explicitly opt into
+          // Credo's Ed25519Signature2020 can still get the old path.
+          const useDataIntegrity =
+            !offer.proofSuite || offer.proofSuite === 'DataIntegrityProof' ||
+            offer.proofSuite === 'eddsa-rdfc-2022'
+
+          let credential: Record<string, unknown>
+          if (useDataIntegrity) {
+            const hostname = new URL(apiBaseUrl).host
+            const diIssuerDid = `did:web:${hostname}:issuers:${tenantId}`
+            const diVm = `${diIssuerDid}#key-0`
+
+            // Self-heal stale binding records (same logic as the OBv3 branch).
+            let binding = await (agent.modules as any).openbadges.ensureBinding(diIssuerDid, diVm)
+            if (!binding?.kmsKeyId) {
+              console.warn('[ldp_vc] Stale key binding detected; recreating', { vm: diVm })
+              const bindingRepo: any = agent.dependencyManager.resolve(OpenBadgesKeyBindingRepository as any)
+              try {
+                const stale = await bindingRepo.findByVmId(agent.context, diVm)
+                if (stale) await bindingRepo.delete(agent.context, stale)
+              } catch (e: any) {
+                console.warn('[ldp_vc] Failed deleting stale key binding:', e?.message || e)
+              }
+              binding = await (agent.modules as any).openbadges.ensureBinding(diIssuerDid, diVm)
+              if (!binding?.kmsKeyId) {
+                throw new Error(`Failed to create kms-backed key binding for ${diVm}`)
+              }
+            }
+
+            const out = await issueJsonLdCredential(agent, {
+              contexts: contexts || [],
+              types,
+              issuerDid: diIssuerDid,
+              verificationMethod: diVm,
+              credentialSubject,
+            })
+            credential = out.credential
+          } else {
+            const out = await signLdpVc(agent, {
+              types,
+              issuerDid,
+              verificationMethod: vmId,
+              credentialSubject,
+              contexts,
+              proofType: offer.proofSuite,
+            })
+            credential = out.credential
+          }
+
           const responseBody = {
             format: 'ldp_vc',
             credential,

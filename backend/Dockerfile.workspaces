@@ -51,6 +51,8 @@ COPY --from=proddeps /repo/node_modules ./node_modules
 COPY --from=builder /repo/packages ./packages
 COPY --from=builder /repo/backend/dist ./dist
 COPY backend/package.json ./package.json
+# Demo portrait JPEGs read at startup by dist/services/oid4vci/portraits.js
+COPY backend/assets ./assets
 
 EXPOSE 3002 3003 3004
 CMD ["node", "dist/index.js"]

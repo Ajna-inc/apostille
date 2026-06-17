@@ -514,9 +514,9 @@ export function createIssuerRoutes(): Router {
       // DEMO: Inject dummy credentials if this is the platform tenant
       if (tenantId === PLATFORM_TENANT_ID) {
         const demoSdJwtConfigs = [
-          { id: 'StudentID', name: 'Student ID', attrs: ['given_name', 'family_name', 'student_id', 'university', 'program', 'enrollment_year', 'expiry_date'] },
-          { id: 'ProfessionalLicense', name: 'Professional License', attrs: ['given_name', 'family_name', 'license_number', 'profession', 'issuing_authority', 'issue_date', 'expiry_date'] },
-          { id: 'EmployeeBadge', name: 'Employee Badge', attrs: ['given_name', 'family_name', 'employee_id', 'department', 'job_title', 'company', 'issue_date'] },
+          { id: 'StudentID', name: 'Student ID', attrs: ['given_name', 'family_name', 'student_id', 'university', 'program', 'enrollment_year', 'expiry_date', 'picture'] },
+          { id: 'ProfessionalLicense', name: 'Professional License', attrs: ['given_name', 'family_name', 'license_number', 'profession', 'issuing_authority', 'issue_date', 'expiry_date', 'picture'] },
+          { id: 'EmployeeBadge', name: 'Employee Badge', attrs: ['given_name', 'family_name', 'employee_id', 'department', 'job_title', 'company', 'issue_date', 'picture'] },
           { id: 'HealthInsurance', name: 'Health Insurance', attrs: ['given_name', 'family_name', 'member_id', 'plan_name', 'insurer', 'group_number', 'effective_date'] },
           { id: 'LoyaltyMembership', name: 'Loyalty Membership', attrs: ['given_name', 'family_name', 'member_id', 'tier', 'points', 'joined_date', 'program_name'] },
           { id: 'AgeVerification', name: 'Age Verification', attrs: ['given_name', 'family_name', 'birth_date', 'over_18', 'over_21', 'nationality'] }
@@ -525,7 +525,53 @@ export function createIssuerRoutes(): Router {
         const demoObv3Configs = [
           { id: 'AcademicExcellence', name: "Dean's List for Academic Excellence", desc: 'Awarded for maintaining a GPA of 3.8 or higher during the academic year.' },
           { id: 'SkillsCertification', name: 'Cloud Computing Specialist', desc: 'Professional certification demonstrating proficiency in cloud architecture and deployment.' },
-          { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' }
+          { id: 'CourseCompletion', name: 'Introduction to Web Development', desc: 'Successfully completed the introductory course covering HTML, CSS, and JavaScript basics.' },
+          { id: 'Diploma', name: 'Bachelor of Science in Computer Science', desc: 'OBv3 academic diploma — four-year undergraduate degree with Magna Cum Laude honors.' }
+        ];
+
+        const demoEndorsementConfigs = [
+          {
+            id: 'AcademicEndorsement',
+            name: 'Academic Endorsement',
+            desc: 'Third-party endorsement of an existing academic achievement (OBv3 EndorsementCredential).'
+          }
+        ];
+
+        const demoLdpVcConfigs = [
+          {
+            id: 'AlumniCredential',
+            name: 'Alumni Credential',
+            desc: 'University alumni credential signed as JSON-LD with DataIntegrityProof (eddsa-rdfc-2022).',
+            types: ['VerifiableCredential', 'AlumniCredential'],
+            attrs: ['given_name', 'family_name', 'degree', 'major', 'graduation_year', 'alma_mater', 'gpa']
+          },
+          {
+            id: 'VolunteerCertificate',
+            name: 'Volunteer Certificate',
+            desc: 'JSON-LD VC certifying volunteer contributions, signed with DataIntegrityProof.',
+            types: ['VerifiableCredential', 'VolunteerCertificate'],
+            attrs: ['given_name', 'family_name', 'organization', 'role', 'hours_contributed', 'year']
+          }
+        ];
+
+        const demoJwtVcJsonConfigs = [
+          {
+            id: 'EventTicket',
+            name: 'Event Ticket',
+            desc: 'W3C VC-JWT v1.1 event admission ticket (jwt_vc_json).',
+            types: ['VerifiableCredential', 'EventTicket'],
+            attrs: ['given_name', 'family_name', 'event_name', 'venue', 'seat', 'event_date', 'ticket_id']
+          }
+        ];
+
+        const demoJwtVcJsonLdConfigs = [
+          {
+            id: 'ResearchAttestation',
+            name: 'Research Attestation',
+            desc: 'W3C VC-JWT with JSON-LD context (jwt_vc_json-ld) attesting a research role.',
+            types: ['VerifiableCredential', 'ResearchAttestation'],
+            attrs: ['given_name', 'family_name', 'institution', 'role', 'project', 'attestation_date']
+          }
         ];
 
         for (const config of demoSdJwtConfigs) {
@@ -568,6 +614,100 @@ export function createIssuerRoutes(): Router {
               },
               display: [{ name: config.name, description: config.desc, background_color: '#4C1D95', text_color: '#FFFFFF', locale: 'en' }],
               claims: {}
+            };
+          }
+        }
+
+        for (const config of demoEndorsementConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            credentialConfigurations[config.id] = {
+              format: 'ldp_vc',
+              scope: config.id,
+              credential_definition: {
+                '@context': [
+                  'https://www.w3.org/ns/credentials/v2',
+                  'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json'
+                ],
+                type: ['VerifiableCredential', 'EndorsementCredential']
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk', 'did:web'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#1E40AF', text_color: '#FFFFFF', locale: 'en' }],
+              claims: {}
+            };
+          }
+        }
+
+        for (const config of demoLdpVcConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'ldp_vc',
+              scope: config.id,
+              credential_definition: {
+                '@context': ['https://www.w3.org/ns/credentials/v2'],
+                type: config.types
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk', 'did:web'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#065F46', text_color: '#FFFFFF', locale: 'en' }],
+              claims
+            };
+          }
+        }
+
+        for (const config of demoJwtVcJsonConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'jwt_vc_json',
+              scope: config.id,
+              credential_definition: {
+                type: config.types
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#9A3412', text_color: '#FFFFFF', locale: 'en' }],
+              claims
+            };
+          }
+        }
+
+        for (const config of demoJwtVcJsonLdConfigs) {
+          if (!credentialConfigurations[config.id]) {
+            const claims: Record<string, any> = {};
+            for (const attr of config.attrs) {
+              claims[attr] = { display: [{ name: attr, locale: 'en' }] };
+            }
+            credentialConfigurations[config.id] = {
+              format: 'jwt_vc_json-ld',
+              scope: config.id,
+              credential_definition: {
+                '@context': ['https://www.w3.org/2018/credentials/v1'],
+                type: config.types
+              },
+              cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+              credential_signing_alg_values_supported: ['EdDSA'],
+              proof_types_supported: {
+                jwt: { proof_signing_alg_values_supported: ['EdDSA', 'ES256'] }
+              },
+              display: [{ name: config.name, description: config.desc, background_color: '#7C2D12', text_color: '#FFFFFF', locale: 'en' }],
+              claims
             };
           }
         }

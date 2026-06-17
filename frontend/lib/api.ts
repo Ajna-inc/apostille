@@ -246,6 +246,25 @@ export const demoApi = {
 
   getOid4vcOfferStatus: async (offerId: string) => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/oid4vc-offer/${encodeURIComponent(offerId)}/status`);
+  },
+
+  /** OID4VP verifier — create an authorization request the wallet can scan. */
+  createVerificationRequest: async (credentialType: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/oid4vp-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credentialType })
+    });
+  },
+
+  /** Poll a verification session by id. Returns parsed claims when verified. */
+  getVerificationStatus: async (sessionId: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/oid4vp-request/${encodeURIComponent(sessionId)}/status`);
+  },
+
+  /** List of verifiable credential types the demo can request. */
+  getVerifiableTypes: async () => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/demo/oid4vp-types`);
   }
 };
 

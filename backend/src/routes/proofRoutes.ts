@@ -119,6 +119,75 @@ router.route('/request')
   });
 
 /**
+ * Request an OpenBadges (OBv3) presentation over DIDComm
+ * POST /api/proofs/request-openbadges
+ *
+ * Drives the standard Present-Proof v2 protocol with `OpenBadgesProofFormatService`.
+ * Body:
+ *   { connectionId: string, achievementName?: string, achievementType?: string,
+ *     issuerId?: string, comment?: string }
+ *
+ * The holder receives a v2 `request-presentation` whose attachment carries the OB-format
+ * filter (`ob/3.0/presentation-request@v1.0`). On the holder side, the
+ * `OpenBadgesProofFormatService` searches the local `OpenBadgeCredentialRepository` for a
+ * matching OB3 credential and replies with `ob/3.0/presentation@v1.0`. With auto-accept on
+ * both ends, the protocol completes without further user input.
+ */
+router.route('/request-openbadges')
+  .post(auth, async (req: Request, res: Response) => {
+    try {
+      const tenantId = req.user.tenantId;
+      const {
+        connectionId,
+        achievementName,
+        achievementType,
+        issuerId,
+        comment,
+      } = req.body;
+
+      if (!connectionId) {
+        res.status(400).json({
+          success: false,
+          message: 'connectionId is required'
+        });
+        return;
+      }
+
+      const agent = await getAgent({ tenantId });
+
+      const proofRecord = await agent.didcomm.proofs.requestProof({
+        connectionId,
+        protocolVersion: 'v2',
+        autoAcceptProof: DidCommAutoAcceptProof.Always,
+        proofFormats: {
+          openbadges: {
+            ...(achievementName && { achievementName }),
+            ...(achievementType && { achievementType }),
+            ...(issuerId && { issuerId }),
+            ...(comment && { comment }),
+          },
+        } as any,
+      });
+
+      res.status(200).json({
+        success: true,
+        proof: {
+          id: proofRecord.id,
+          state: proofRecord.state,
+          connectionId: proofRecord.connectionId,
+          threadId: proofRecord.threadId
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to request OpenBadges presentation:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to request OpenBadges presentation'
+      });
+    }
+  });
+
+/**
  * Accept a proof request
  */
 router.route('/:proofId/accept')
