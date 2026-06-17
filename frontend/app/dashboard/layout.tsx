@@ -9,8 +9,8 @@ interface DashboardLayoutProps {
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
-    <Suspense fallback={null}>
+    <Suspense>
       <ClientLayout>{children}</ClientLayout>
     </Suspense>
   )
-}
+} 
