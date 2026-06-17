@@ -1,4 +1,5 @@
 // Workflow Builder Constants
+import type { UIElement } from './types'
 
 // Action Type URIs
 export const ACTION_TYPE_URIS = {
@@ -36,52 +37,79 @@ export const ACTION_CATEGORIES = {
 
 // UI Element Types
 export const UI_ELEMENT_TYPES = [
+  'title',
   'text',
-  'button',
-  'submit-button',
-  'card',
-  'container',
-  'divider',
-  'spacer',
-  'list',
-  'table',
+  'warning',
   'badge',
   'image',
   'video',
+  'divider',
+  'spacer',
+  'card',
+  'container',
+  'list',
+  'table',
+  'input',
+  'checkbox',
+  'button',
+  'submit-button',
+  'bar-chart',
+  'pie-chart',
+  'donut-chart',
+  'gauge',
+  'timeline',
 ] as const
 
 export type UIElementType = typeof UI_ELEMENT_TYPES[number]
 
 // UI Element Labels
 export const UI_ELEMENT_LABELS: Record<UIElementType, string> = {
+  title: 'Title',
   text: 'Text',
-  button: 'Button',
-  'submit-button': 'Submit Button',
-  card: 'Card',
-  container: 'Container',
-  divider: 'Divider',
-  spacer: 'Spacer',
-  list: 'List',
-  table: 'Table',
+  warning: 'Warning',
   badge: 'Badge',
   image: 'Image',
   video: 'Video',
+  divider: 'Divider',
+  spacer: 'Spacer',
+  card: 'Card',
+  container: 'Container',
+  list: 'List',
+  table: 'Table',
+  input: 'Input',
+  checkbox: 'Checkbox',
+  button: 'Button',
+  'submit-button': 'Submit Button',
+  'bar-chart': 'Bar Chart',
+  'pie-chart': 'Pie Chart',
+  'donut-chart': 'Donut Chart',
+  gauge: 'Gauge',
+  timeline: 'Timeline',
 }
 
 // UI Element Icons (icon names from your icon library)
 export const UI_ELEMENT_ICONS: Record<UIElementType, string> = {
+  title: 'layout',
   text: 'Type',
-  button: 'MousePointer',
-  'submit-button': 'Send',
-  card: 'Square',
-  container: 'Box',
-  divider: 'Minus',
-  spacer: 'Space',
-  list: 'List',
-  table: 'Table',
+  warning: 'alert',
   badge: 'Tag',
   image: 'Image',
   video: 'Video',
+  divider: 'Minus',
+  spacer: 'Space',
+  card: 'Square',
+  container: 'Box',
+  list: 'List',
+  table: 'Table',
+  input: 'Pen',
+  checkbox: 'Check',
+  button: 'MousePointer',
+  'submit-button': 'Send',
+  'bar-chart': 'TrendUp',
+  'pie-chart': 'Circle',
+  'donut-chart': 'Target',
+  gauge: 'Clock',
+  timeline: 'Scroll',
 }
 
 // State Type Colors
@@ -194,3 +222,45 @@ export type ProfileName = typeof PROFILE_NAMES[number]
 // Attribute source types
 export const ATTRIBUTE_SOURCES = ['context', 'static', 'compute'] as const
 export type AttributeSource = typeof ATTRIBUTE_SOURCES[number]
+
+// Factory for default UI elements by type
+export function makeDefaultElement(type: UIElementType): UIElement {
+  switch (type) {
+    case 'title': return { type: 'title', text: 'Section title', level: 2 }
+    case 'text': return { type: 'text', text: 'Text' }
+    case 'warning': return { type: 'warning', title: 'Warning', text: 'Please review this step before continuing.', tone: 'warning' }
+    case 'badge': return { type: 'badge', text: 'Badge' }
+    case 'image': return { type: 'image', src: '', alt: '' }
+    case 'video': return { type: 'video', src: '' }
+    case 'divider': return { type: 'divider' }
+    case 'spacer': return { type: 'spacer' }
+    case 'card': return { type: 'card', title: 'Card', children: [] }
+    case 'container': return { type: 'container', children: [] }
+    case 'list': return { type: 'list', title: 'Checklist', items: ['Item one', 'Item two'] }
+    case 'table': return { type: 'table', title: 'Table', columns: [], rows: [] }
+    case 'input': return { type: 'input', label: 'Input', name: 'field', placeholder: 'Enter value', inputType: 'text', required: false }
+    case 'checkbox': return { type: 'checkbox', label: 'Checkbox', name: 'checkbox', checked: false }
+    case 'button': return { type: 'button', label: 'Button', event: 'button_click' }
+    case 'submit-button': return { type: 'submit-button', label: 'Submit', event: 'submit' }
+    case 'bar-chart': return { type: 'bar-chart', title: 'Bar Chart', data: [
+      { label: 'A', value: 4 },
+      { label: 'B', value: 7 },
+      { label: 'C', value: 5 },
+    ] }
+    case 'pie-chart': return { type: 'pie-chart', title: 'Pie Chart', data: [
+      { label: 'A', value: 35 },
+      { label: 'B', value: 25 },
+      { label: 'C', value: 40 },
+    ] }
+    case 'donut-chart': return { type: 'donut-chart', title: 'Donut Chart', data: [
+      { label: 'A', value: 50 },
+      { label: 'B', value: 30 },
+      { label: 'C', value: 20 },
+    ] }
+    case 'gauge': return { type: 'gauge', title: 'Gauge', value: 65, max: 100 }
+    case 'timeline': return { type: 'timeline', title: 'Timeline', items: [
+      { title: 'Started', meta: 'Now' },
+      { title: 'Waiting for review', meta: 'Next' },
+    ] }
+  }
+}

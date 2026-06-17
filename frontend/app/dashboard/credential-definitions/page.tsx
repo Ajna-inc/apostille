@@ -153,6 +153,7 @@ export default function CredentialDefinitionsPage() {
   const [loadingSchema, setLoadingSchema] = useState<boolean>(false);
   const [overlayData, setOverlayData] = useState<any>(null);
   const [loadingOverlay, setLoadingOverlay] = useState<boolean>(false);
+  const [svgContent, setSvgContent] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -237,6 +238,59 @@ export default function CredentialDefinitionsPage() {
 
     fetchData();
   }, [tenantId]);
+
+  useEffect(() => {
+    const svgUrl = overlayData?.branding?.svg_template_url;
+    if (!svgUrl) {
+      setSvgContent(null);
+      return;
+    }
+    fetch(svgUrl)
+      .then((res) => res.text())
+      .then((text) => {
+
+        let responsive = text
+          .replace(/(<svg\b[^>]*?)\s+width="\d+(?:\.\d+)?"/, '$1')
+          .replace(/(<svg\b[^>]*?)\s+height="\d+(?:\.\d+)?"/, '$1');
+
+        responsive = responsive.replace(/\{\{META\.([A-Z_]+)\}\}/g, (_, key) => `{{meta.${key.toLowerCase()}}}`);
+
+        const meta = overlayData?.meta as Record<string, string> | undefined;
+        if (meta) {
+          for (const [key, value] of Object.entries(meta)) {
+            if (value) {
+              responsive = responsive.replace(
+                new RegExp(`\\{\\{meta\\.${key}\\}\\}`, 'g'),
+                value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              );
+            }
+          }
+        }
+
+        try {
+          const parser = new DOMParser();
+          const svgDoc = parser.parseFromString(responsive, 'image/svg+xml');
+          const svgEl = svgDoc.querySelector('svg');
+          if (svgEl) {
+            const viewBox = svgEl.getAttribute('viewBox');
+            const cardWidth = viewBox ? parseFloat(viewBox.split(' ')[2]) : 340;
+            const center = cardWidth / 2;
+            svgDoc.querySelectorAll('text[text-anchor="middle"]').forEach((textEl) => {
+              const currentX = parseFloat(textEl.getAttribute('x') || '0');
+
+              if (Math.abs(currentX - center) > cardWidth * 0.3) {
+                textEl.setAttribute('x', String(center));
+              }
+            });
+            responsive = new XMLSerializer().serializeToString(svgDoc);
+          }
+        } catch {
+
+        }
+        setSvgContent(responsive);
+      })
+      .catch(() => setSvgContent(null));
+  }, [overlayData]);
 
   const openModal = async () => {
     setIsOpen(true);
@@ -441,6 +495,7 @@ export default function CredentialDefinitionsPage() {
     setIsDetailsOpen(false);
     setSchemaDetails(null);
     setOverlayData(null);
+    setSvgContent(null);
   };
 
   const getAssetExtension = (mimeType: string) => {
@@ -923,6 +978,33 @@ export default function CredentialDefinitionsPage() {
     formatCounts[f] = (formatCounts[f] || 0) + 1;
   });
 
+  type CredDefSortKey = 'id' | 'schema' | 'format' | 'tag' | 'createdAt';
+  const [credDefSort, setCredDefSort] = useState<{ key: CredDefSortKey; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
+
+  function toggleCredDefSort(key: CredDefSortKey) {
+    setCredDefSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+  function credDefSortArrow(key: CredDefSortKey) {
+    if (credDefSort.key !== key) return <span style={{ color: 'var(--ink-5)', marginLeft: 4 }}>↕</span>;
+    return <span style={{ marginLeft: 4 }}>{credDefSort.dir === 'asc' ? '↑' : '↓'}</span>;
+  }
+
+  const sortedCredDefs = [...credentialDefinitions].sort((a, b) => {
+    let cmp = 0;
+    if (credDefSort.key === 'createdAt') {
+      cmp = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+    } else if (credDefSort.key === 'id') {
+      cmp = (a.credentialDefinitionId || a.id || '').localeCompare(b.credentialDefinitionId || b.id || '');
+    } else if (credDefSort.key === 'schema') {
+      cmp = (a.schemaId || '').localeCompare(b.schemaId || '');
+    } else if (credDefSort.key === 'format') {
+      cmp = (a.format || 'anoncreds').localeCompare(b.format || 'anoncreds');
+    } else if (credDefSort.key === 'tag') {
+      cmp = (a.tag || '').localeCompare(b.tag || '');
+    }
+    return credDefSort.dir === 'asc' ? cmp : -cmp;
+  });
+
   return (
     <div>
       {/* Header */}
@@ -971,17 +1053,29 @@ export default function CredentialDefinitionsPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Cred Def ID</th>
-                <th>Schema</th>
-                <th>Format</th>
-                <th>Tag</th>
-                <th>Created</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredDefSort('tag')}>
+                  Tag{credDefSortArrow('tag')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredDefSort('createdAt')}>
+                  Created{credDefSortArrow('createdAt')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredDefSort('id')}>
+                  Cred Def ID{credDefSortArrow('id')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredDefSort('schema')}>
+                  Schema{credDefSortArrow('schema')}
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleCredDefSort('format')}>
+                  Format{credDefSortArrow('format')}
+                </th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {credentialDefinitions.map((credDef) => (
-                <tr key={credDef.id}>
+              {sortedCredDefs.map((credDef, idx) => (
+                <tr key={credDef.credentialDefinitionId || credDef.id || idx}>
+                  <td><span className="tag">{credDef.tag || '—'}</span></td>
+                  <td><span className="mono-dim">{credDef.createdAt ? new Date(credDef.createdAt).toLocaleDateString() : '—'}</span></td>
                   <td><span className="mono" style={{ fontSize: 12 }}>{(credDef.credentialDefinitionId || credDef.id || '').slice(0, 30)}...</span></td>
                   <td><span className="mono mono-dim" style={{ fontSize: 11.5 }}>{(credDef.schemaId || '').slice(0, 25)}...</span></td>
                   <td>
@@ -989,8 +1083,6 @@ export default function CredentialDefinitionsPage() {
                       {credDef.format === 'mso_mdoc' ? 'mDL/mdoc' : credDef.format === 'oid4vc' ? 'OID4VC' : 'AnonCreds'}
                     </span>
                   </td>
-                  <td><span className="tag">{credDef.tag || '—'}</span></td>
-                  <td><span className="mono-dim">{credDef.createdAt ? new Date(credDef.createdAt).toLocaleDateString() : '—'}</span></td>
                   <td style={{ textAlign: 'right' }}>
                     <button className="btn btn-secondary btn-xs" onClick={() => openDetailsModal(credDef)}>Details</button>
                   </td>
@@ -1061,6 +1153,7 @@ export default function CredentialDefinitionsPage() {
         schemaDetails={schemaDetails}
         overlayData={overlayData}
         loadingOverlay={loadingOverlay}
+        svgContent={svgContent}
       />
 
     </div>

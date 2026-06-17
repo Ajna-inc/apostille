@@ -29,6 +29,7 @@ router.route('/')
         proofs: proofs.map((proof: DidCommProofExchangeRecord) => ({
           id: proof.id,
           state: proof.state,
+          role: proof.role,
           createdAt: proof.createdAt,
           connectionId: proof.connectionId,
           threadId: proof.threadId,

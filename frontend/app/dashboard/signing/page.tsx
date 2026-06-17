@@ -50,6 +50,26 @@ interface SigningKey {
   createdAt?: string;
 }
 
+function getStateColor(state: string): string {
+  switch (state.toLowerCase()) {
+    case 'completed':
+      return 'bg-success-100 text-success-700 border-success-300 dark:bg-success-900/30 dark:text-success-400 dark:border-success-700';
+    case 'declined':
+    case 'abandoned':
+      return 'bg-error-100 text-error-700 border-error-300 dark:bg-error-900/30 dark:text-error-400 dark:border-error-700';
+    case 'request-sent':
+    case 'request-received':
+      return 'bg-primary-100 text-primary-700 border-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:border-primary-700';
+    case 'consent-received':
+    case 'consent-sent':
+      return 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-700';
+    case 'signature-received':
+      return 'bg-indigo-100 text-indigo-700 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-700';
+    default:
+      return 'bg-surface-100 text-text-secondary border-border-secondary';
+  }
+}
+
 export default function SigningPage() {
   const [sessions, setSessions] = useState<SigningSession[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -234,26 +254,6 @@ export default function SigningPage() {
     } catch (error: any) {
       console.error('Failed to decline:', error);
       toast.error(error.message || 'Failed to decline request');
-    }
-  };
-
-  const getStateColor = (state: string) => {
-    switch (state.toLowerCase()) {
-      case 'completed':
-        return 'bg-success-100 text-success-700 border-success-300 dark:bg-success-900/30 dark:text-success-400 dark:border-success-700';
-      case 'declined':
-      case 'abandoned':
-        return 'bg-error-100 text-error-700 border-error-300 dark:bg-error-900/30 dark:text-error-400 dark:border-error-700';
-      case 'request-sent':
-      case 'request-received':
-        return 'bg-primary-100 text-primary-700 border-primary-300 dark:bg-primary-900/30 dark:text-primary-400 dark:border-primary-700';
-      case 'consent-received':
-      case 'consent-sent':
-        return 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-700';
-      case 'signature-received':
-        return 'bg-indigo-100 text-indigo-700 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-700';
-      default:
-        return 'bg-surface-100 text-text-secondary border-border-secondary';
     }
   };
 
@@ -516,7 +516,7 @@ export default function SigningPage() {
                   className="input w-full"
                 >
                   <option value="">-- Select a connection --</option>
-                  {connections.map((conn) => (
+                  {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                     <option key={conn.id} value={conn.id}>
                       {conn.theirLabel || conn.id}
                     </option>

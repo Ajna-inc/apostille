@@ -28,8 +28,8 @@ export function PropertiesPanel() {
   const selectedEdge = selectedEdgeId ? edges.find((e) => e.id === selectedEdgeId) : null
   const selectedTransition = selectedEdge
     ? template.transitions.find(
-        (t) => t.from === selectedEdge.from && t.to === selectedEdge.to && t.on === selectedEdge.data.on
-      )
+      (t) => t.from === selectedEdge.from && t.to === selectedEdge.to && t.on === selectedEdge.data.on
+    )
     : null
 
   if (!propertiesPanelOpen) {

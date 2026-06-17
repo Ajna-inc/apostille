@@ -20,6 +20,7 @@ import {
     DidCommAutoAcceptProof,
     DidCommBasicMessageEventTypes,
     DidCommConnectionEventTypes,
+    DidCommCredentialEventTypes,
     DidCommCredentialV2Protocol,
     DidCommDidExchangeState,
     DidCommDiscoverFeaturesModule,
@@ -54,7 +55,7 @@ import {
     AnonCredsModule,
 } from '@credo-ts/anoncreds'
 import { WorkflowModule, WorkflowCommandRepository, WorkflowInstanceRepository, WorkflowTemplateRepository, WorkflowService, CommandQueueService, PersistentCommandQueue, WorkflowModuleConfig } from '@ajna-inc/workflow'
-// import { registerWorkflowActionOverrides } from './workflowActions'
+import { registerWorkflowActionOverrides } from './workflowActionOverrides'
 import { WebRTCModule } from '@ajna-inc/webrtc'
 import { SigningModule } from '@ajna-inc/signing'
 import { VaultsModule } from '@ajna-inc/vaults'
@@ -591,11 +592,6 @@ async function initializeAgent(
         } catch (error: any) {
             console.warn('[KEM] Failed to register protocol feature:', error?.message || error);
         }
-        // try {
-        //     registerWorkflowActionOverrides(agent);
-        // } catch (e) {
-        //     console.warn('[Workflow] Failed to register action overrides', { error: (e as Error).message });
-        // }
         console.log(`Agent initialized successfully for wallet: ${walletId}`);
         console.log('Mock POE programs registered via module config');
 
@@ -1036,6 +1032,46 @@ const setupKemKeyExchangeHandler = (agent: AgentWithDidComm) => {
                 return;
             }
 
+            if (parsed?.type === 'workflow-application-rejected') {
+                const workflowConnectionId = parsed?.connectionId || connectionId;
+                if (!workflowConnectionId) return;
+
+                console.log(`[WorkflowBridge] Received application rejection signal for connection ${workflowConnectionId}`);
+
+                let targetAgent: any = agent;
+                if (contextCorrelationId && contextCorrelationId !== 'default') {
+                    try {
+                        targetAgent = await getAgent({ tenantId: contextCorrelationId });
+                    } catch (e: any) {
+                        console.warn(`[WorkflowBridge] Could not get tenant agent for ${contextCorrelationId}: ${e.message}`);
+                    }
+                }
+
+                const service = targetAgent.dependencyManager.resolve(WorkflowService) as WorkflowService;
+                await service.autoAdvanceByConnection(targetAgent.context, workflowConnectionId, 'reject');
+                return;
+            }
+
+            if (parsed?.type === 'workflow-application-approved') {
+                const workflowConnectionId = parsed?.connectionId || connectionId;
+                if (!workflowConnectionId) return;
+
+                console.log(`[WorkflowBridge] Received application approval signal for connection ${workflowConnectionId}`);
+
+                let targetAgent: any = agent;
+                if (contextCorrelationId && contextCorrelationId !== 'default') {
+                    try {
+                        targetAgent = await getAgent({ tenantId: contextCorrelationId });
+                    } catch (e: any) {
+                        console.warn(`[WorkflowBridge] Could not get tenant agent for ${contextCorrelationId}: ${e.message}`);
+                    }
+                }
+
+                const service = targetAgent.dependencyManager.resolve(WorkflowService) as WorkflowService;
+                await service.autoAdvanceByConnection(targetAgent.context, workflowConnectionId, 'approve');
+                return;
+            }
+
             // KEM key exchange
             const kemData = parsed as { type: string; kid: string; publicKey: string; algorithm?: string };
             if (kemData?.type !== 'kem-key-exchange' || !kemData.kid || !kemData.publicKey) {
@@ -1116,6 +1152,43 @@ const setupKemKeyExchangeHandler = (agent: AgentWithDidComm) => {
     });
 };
 
+const mapCredentialStateToWorkflowEvent = (record: any): string | null => {
+    const state = String(record?.state || '').toLowerCase()
+    const role = String(record?.role || '').toLowerCase()
+
+    if (state === 'offer-received') return 'offer_received'
+    if (state === 'request-received') return 'request_received'
+    if (state === 'credential-received') return 'credential_received'
+    if (state === 'done' && role === 'holder') return 'credential_received'
+
+    return null
+}
+
+const setupWorkflowCredentialHandler = (agent: AgentWithDidComm) => {
+    const emitter = (agent as any).eventEmitter || (agent as any).events;
+    if (!emitter) {
+        console.warn('[WorkflowBridge] agent.eventEmitter/events not available, skipping workflow credential handler setup');
+        return;
+    }
+    console.log('[WorkflowBridge] Setting up credential-state workflow bridge');
+    emitter.on(DidCommCredentialEventTypes.DidCommCredentialStateChanged, async (event: any) => {
+        try {
+            const record = event?.payload?.credentialRecord || event?.payload?.credentialExchangeRecord || event?.payload?.record;
+            const connectionId = record?.connectionId || event?.payload?.connectionId;
+            if (!connectionId) return;
+
+            const workflowEvent = mapCredentialStateToWorkflowEvent(record);
+            if (!workflowEvent) return;
+
+            const service = agent.dependencyManager.resolve(WorkflowService) as WorkflowService;
+            await service.autoAdvanceByConnection(agent.context, connectionId, workflowEvent);
+            console.log(`[WorkflowBridge] connection=${connectionId} credentialState=${record?.state} role=${record?.role} event=${workflowEvent}`);
+        } catch (error: any) {
+            console.warn('[WorkflowBridge] Failed to auto-advance workflow from credential state change:', error?.message || error);
+        }
+    });
+};
+
 // Patterns that indicate a stale/dead Askar session — safe to evict + retry
 const STALE_SESSION_PATTERNS = [
     'Failed to acquire an agent context session',
@@ -1183,6 +1256,10 @@ async function activateTenantAgent(tenantId: string, baseAgent: AgentWithDidComm
 
     // Start workflow queue (awaited — needs to be ready before first workflow request)
     await ensureTenantWorkflowQueue(tenantAgent, tenantId);
+
+    // Override offer-credential action to read attributes from received proposals (CRMS-to-CRMS)
+    registerWorkflowActionOverrides(tenantAgent);
+    setupWorkflowCredentialHandler(tenantAgent);
 
     return tenantAgent;
 }

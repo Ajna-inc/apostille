@@ -20,6 +20,7 @@ import { WebRTCEvents } from '@ajna-inc/webrtc'
 import { isEnabled } from '../notifications/registry'
 import crypto from 'crypto'
 import { CacheStore } from './redis/cacheStore'
+import { WorkflowTemplateRepository } from '@ajna-inc/workflow'
 
 type TenantId = string
 
@@ -41,6 +42,54 @@ const dedupCache = new CacheStore<{ timestamp: number }>({
 
 // Fallback in-memory cache for when Redis is unavailable
 const localSeenKeys: Map<string, number> = new Map()
+const workflowTemplateTitleCache = new Map<string, string>()
+const connectionLabelCache = new Map<string, string>()
+
+function prettifyLabel(value: unknown): string {
+  return String(value || '')
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim()
+}
+
+async function resolveConnectionLabel(agent: Agent, tenantId: string, connectionId?: string): Promise<string | undefined> {
+  if (!connectionId) return undefined
+  const cacheKey = `${tenantId}:${connectionId}`
+  const cached = connectionLabelCache.get(cacheKey)
+  if (cached) return cached
+
+  try {
+    const conn = await agent.didcomm.connections.getById(connectionId)
+    const label = (conn as any)?.theirLabel || (conn as any)?.label || (conn as any)?.alias || ''
+    const resolved = String(label || '').trim()
+    if (resolved) {
+      connectionLabelCache.set(cacheKey, resolved)
+      return resolved
+    }
+  } catch {}
+
+  return `…${String(connectionId).slice(-6)}`
+}
+
+async function resolveWorkflowTitle(agent: Agent, tenantId: string, templateId?: string, version?: string): Promise<string | undefined> {
+  if (!templateId) return undefined
+  const key = `${tenantId}:${version ? `${templateId}@${version}` : templateId}`
+  const cached = workflowTemplateTitleCache.get(key)
+  if (cached) return cached
+
+  try {
+    const repo = agent.dependencyManager.resolve(WorkflowTemplateRepository) as WorkflowTemplateRepository
+    const record = await repo.findByTemplateIdAndVersion(agent.context, templateId, version)
+    const title = (record as any)?.template?.title || (record as any)?.title || ''
+    const resolved = String(title || '').trim()
+    if (resolved) {
+      workflowTemplateTitleCache.set(key, resolved)
+      return resolved
+    }
+  } catch {}
+
+  return prettifyLabel(templateId)
+}
 
 async function dedup(key: string): Promise<boolean> {
   const now = Date.now()
@@ -126,6 +175,53 @@ async function emit<T extends BaseEvent>(tenantId: string, e: T) {
       source: (e as any)?.payload?.source || 'event',
     }
   }
+  // Normalize credential payloads so the UI can show the connection and record id
+  // without having to know the exact event shape for the installed DIDComm package.
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  if (String((e as any)?.type || '').includes('CredentialStateChanged')) {
+    const record = (e as any)?.payload?.credentialRecord || (e as any)?.payload?.credentialExchangeRecord || (e as any)?.payload?.record
+    if (record) {
+      data = {
+        ...data,
+        credentialRecord: record,
+        id: record?.id || data?.id,
+        state: record?.state || data?.state,
+        role: record?.role || data?.role,
+        connectionId: record?.connectionId || data?.connectionId,
+        threadId: record?.threadId || data?.threadId,
+        createdAt: record?.createdAt || data?.createdAt,
+        updatedAt: record?.updatedAt || data?.updatedAt,
+      }
+    }
+  }
+  // Enrich workflow payloads so the UI can show meaningful metadata without
+  // re-fetching the instance immediately.
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  if (String((e as any)?.type || '').includes('Workflow')) {
+    const instanceRecord = (e as any)?.payload?.instanceRecord
+    if (instanceRecord) {
+      data = {
+        ...data,
+        instanceId: instanceRecord?.instanceId,
+        templateId: instanceRecord?.templateId,
+        templateVersion: instanceRecord?.templateVersion,
+        connectionId: instanceRecord?.connectionId,
+        state: instanceRecord?.state,
+        status: instanceRecord?.status,
+        section: instanceRecord?.section,
+        previousState: (e as any)?.payload?.previousState,
+        previousStatus: (e as any)?.payload?.previousStatus,
+        newState: (e as any)?.payload?.newState,
+        newStatus: (e as any)?.payload?.newStatus,
+        event: (e as any)?.payload?.event,
+        actionKey: (e as any)?.payload?.actionKey,
+        reason: (e as any)?.payload?.reason,
+        templateName: instanceRecord?.templateId,
+      }
+    }
+  }
   const payload: NotificationPayload<any> = {
     v: 1,
     id: crypto.randomUUID(),
@@ -136,6 +232,40 @@ async function emit<T extends BaseEvent>(tenantId: string, e: T) {
   }
   try { console.log(`[WS] send type=${payload.type} tenant=${tenantId}`) } catch {}
   bus.sendSync(tenantId, payload)
+}
+
+async function emitWorkflowNotification(tenantId: string, agent: Agent, e: any, type: string) {
+  const instanceRecord = e?.payload?.instanceRecord
+  const templateId = instanceRecord?.templateId || e?.payload?.templateId || e?.payload?.workflowId
+  const templateVersion = instanceRecord?.templateVersion || e?.payload?.templateVersion
+  const connectionId = instanceRecord?.connectionId || e?.payload?.connectionId
+  const workflowTitle = await resolveWorkflowTitle(agent, tenantId, templateId, templateVersion)
+  const connectionLabel = await resolveConnectionLabel(agent, tenantId, connectionId)
+  const data = {
+    ...(e?.payload || {}),
+    instanceId: instanceRecord?.instanceId || e?.payload?.instanceId,
+    templateId,
+    templateVersion,
+    connectionId,
+    connectionLabel,
+    workflowTitle,
+    workflowName: workflowTitle,
+    templateName: workflowTitle,
+    title: workflowTitle,
+    occurredAt: new Date().toISOString(),
+    section: instanceRecord?.section || e?.payload?.section,
+    state: instanceRecord?.state || e?.payload?.state,
+    status: instanceRecord?.status || e?.payload?.status,
+    previousState: e?.payload?.previousState,
+    previousStatus: e?.payload?.previousStatus,
+    newState: e?.payload?.newState,
+    newStatus: e?.payload?.newStatus,
+    event: e?.payload?.event,
+    actionKey: e?.payload?.actionKey,
+    reason: e?.payload?.reason,
+  }
+
+  await emit(tenantId, { type, payload: data } as any)
 }
 
 export async function onSocketConnected(tenantId: string, agent: Agent) {
@@ -182,9 +312,15 @@ export async function onSocketConnected(tenantId: string, agent: Agent) {
   }
   const onCred: (e: DidCommCredentialStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
   const onProof: (e: DidCommProofStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e) }
-  const onWfState: (e: WorkflowInstanceStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
-  const onWfStatus: (e: WorkflowInstanceStatusChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
-  const onWfDone: (e: WorkflowInstanceCompletedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
+  const onWfState: (e: WorkflowInstanceStateChangedEvent) => void = (e) => {
+    if (acceptForTenant(e)) void emitWorkflowNotification(tenantId, agent, e as any, WorkflowEventTypes.WorkflowInstanceStateChanged)
+  }
+  const onWfStatus: (e: WorkflowInstanceStatusChangedEvent) => void = (e) => {
+    if (acceptForTenant(e)) void emitWorkflowNotification(tenantId, agent, e as any, WorkflowEventTypes.WorkflowInstanceStatusChanged)
+  }
+  const onWfDone: (e: WorkflowInstanceCompletedEvent) => void = (e) => {
+    if (acceptForTenant(e)) void emitWorkflowNotification(tenantId, agent, e as any, WorkflowEventTypes.WorkflowInstanceCompleted)
+  }
   const onSigning: (e: SigningStateChangedEvent) => void = (e) => { if (acceptForTenant(e)) emit(tenantId, e as any) }
   // WebRTC events (DIDComm signaling)
   const onRtcOffer = (e: any) => {

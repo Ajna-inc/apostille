@@ -54,16 +54,25 @@ router.get('/templates', auth, async (req: Request, res: Response) => {
     }
     const agent = await getAgent({ tenantId })
     const records = await agent.modules.workflow.listTemplates()
+    const parseTemplate = (raw: any) => {
+      if (typeof raw === 'string') { try { return JSON.parse(raw) } catch { return {} } }
+      return raw ?? {}
+    }
     return res.status(200).json({
       success: true,
-      templates: records.map((record: any) => ({
-        id: record.id,
-        template_id: record.template.template_id,
-        version: record.template.version,
-        title: record.template.title,
-        createdAt: record.createdAt,
-        hash: record.hash,
-      })),
+      templates: records.map((record: any) => {
+        const tmpl = parseTemplate(record.template)
+        return {
+          id: record.id,
+          template_id: tmpl.template_id ?? record.template_id,
+          version: tmpl.version ?? record.version,
+          title: tmpl.title ?? record.title,
+          createdAt: record.createdAt,
+          hash: record.hash,
+          states_count: Array.isArray(tmpl.states) ? tmpl.states.length : 0,
+          transitions_count: Array.isArray(tmpl.transitions) ? tmpl.transitions.length : 0,
+        }
+      }),
     })
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to list workflow templates' })
@@ -94,6 +103,8 @@ router.get('/templates/discover', auth, async (req: Request, res: Response) => {
         title: record.template.title,
         createdAt: record.createdAt,
         hash: record.hash,
+        states_count: Array.isArray(record.template.states) ? record.template.states.length : undefined,
+        transitions_count: Array.isArray(record.template.transitions) ? record.template.transitions.length : undefined,
       })),
     })
   } catch (error) {

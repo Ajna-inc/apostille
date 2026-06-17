@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { pdfSigningApi, vaultApi, connectionApi } from '../../../lib/api';
 import { toast } from 'react-toastify';
 import { KeyManager, PdfSigner, StoredSigningKey } from '../../../lib/signing';
@@ -72,6 +73,7 @@ interface SigningStatus {
 
 export default function PdfSigningPage() {
   const { notifications } = useNotifications();
+  const searchParams = useSearchParams();
   const lastNotificationIdRef = useRef<string | null>(null);
   const [status, setStatus] = useState<SigningStatus | null>(null);
   // Owner's vaults
@@ -100,6 +102,14 @@ export default function PdfSigningPage() {
     if (!showUploadModal) return;
     setUploadConnectionIds((prev) => prev.filter((id) => kemStatuses[id]?.ready));
   }, [showUploadModal, kemStatuses]);
+
+  // Pre-select a connection when arriving from the connection detail page
+  useEffect(() => {
+    const connId = searchParams.get('connection');
+    if (!connId) return;
+    setUploadConnectionIds([connId]);
+    setShowUploadModal(true);
+  }, [searchParams]);
 
   // Sign modal state
   const [showSignModal, setShowSignModal] = useState(false);
@@ -1210,52 +1220,7 @@ export default function PdfSigningPage() {
                     collapsible: activeTab === 'all',
                   })}
                 </div>
-                {activeTab === 'all' ? (
-                  openSections.toSign && (
-                    toSignVaults.length === 0 ? (
-                      <div className="px-6 py-8 text-center text-text-secondary">No documents received for signing</div>
-                    ) : (
-                      <div className="divide-y divide-border-secondary">
-                        {toSignVaults.map((vault) => (
-                          <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <svg className="h-8 w-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                              <div>
-                                <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
-                                <div className="text-xs text-text-tertiary">
-                                  {vault.description && <span>{vault.description} • </span>}
-                                  Received: {vault.createdAt ? new Date(vault.createdAt).toLocaleDateString() : 'Unknown'}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => handleInitiateSign(vault)}
-                                disabled={signing}
-                                className="btn btn-sm btn-primary"
-                              >
-                                {signing && selectedVault?.vaultId === vault.vaultId ? 'Loading...' : 'Sign'}
-                              </button>
-                              {canSignerDownload(vault) && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedVault(vault);
-                                    setShowDownloadModal(true);
-                                  }}
-                                  className="btn btn-sm btn-secondary"
-                                >
-                                  Download
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  )
-                ) : (
+                {(activeTab !== 'all' || openSections.toSign) && (
                   toSignVaults.length === 0 ? (
                     <div className="px-6 py-8 text-center text-text-secondary">No documents received for signing</div>
                   ) : (
@@ -1373,74 +1338,7 @@ export default function PdfSigningPage() {
                   count: awaitingSignatureVaults.length,
                   collapsible: activeTab === 'all',
                 })}
-                {activeTab === 'all' ? (
-                  openSections.awaiting && (
-                    awaitingSignatureVaults.length === 0 ? (
-                      <div className="px-6 py-8 text-center text-text-secondary">No documents awaiting signature from others</div>
-                    ) : (
-                      <div className="divide-y divide-border-secondary">
-                        {awaitingSignatureVaults.map((vault) => (
-                          <div key={vault.vaultId} className="px-6 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <svg className="h-8 w-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              <div>
-                                <div className="font-medium text-text-primary">{vault.filename || 'Unnamed PDF'}</div>
-                                <div className="text-xs text-text-tertiary">
-                                  {vault.description && <span>{vault.description} • </span>}
-                                  Shared: {vault.sharedAt ? new Date(vault.sharedAt).toLocaleDateString() : 'Unknown'}
-                                </div>
-                                {/* Multi-recipient signing progress */}
-                                {vault.signingProgress && vault.signingProgress.total > 1 && (
-                                  <div className="mt-1">
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full max-w-[120px]">
-                                        <div
-                                          className="h-1.5 bg-blue-500 rounded-full transition-all"
-                                          style={{ width: `${Math.min(100, (vault.signingProgress.signed / vault.signingProgress.required) * 100)}%` }}
-                                        />
-                                      </div>
-                                      <span className="text-xs text-text-secondary">
-                                        {vault.signingProgress.signed}/{vault.signingProgress.required} signed
-                                        {vault.signingProgress.total !== vault.signingProgress.required &&
-                                          ` (${vault.signingProgress.total} total)`}
-                                      </span>
-                                    </div>
-                                    {vault.signingProgress.signers && (
-                                      <div className="flex gap-1 mt-1">
-                                        {vault.signingProgress.signers.map((s, idx) => (
-                                          <span
-                                            key={idx}
-                                            className={`inline-block w-2 h-2 rounded-full ${
-                                              s.isSigned ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-                                            }`}
-                                            title={`Signer ${idx + 1}: ${s.isSigned ? 'Signed' : 'Pending'}`}
-                                          />
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setSelectedVault(vault);
-                                  setShowDownloadModal(true);
-                                }}
-                                className="btn btn-sm btn-secondary"
-                              >
-                                Download
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  )
-                ) : (
+                {(activeTab !== 'all' || openSections.awaiting) && (
                   awaitingSignatureVaults.length === 0 ? (
                     <div className="px-6 py-8 text-center text-text-secondary">No documents awaiting signature from others</div>
                   ) : (
@@ -1457,7 +1355,6 @@ export default function PdfSigningPage() {
                                 {vault.description && <span>{vault.description} • </span>}
                                 Shared: {vault.sharedAt ? new Date(vault.sharedAt).toLocaleDateString() : 'Unknown'}
                               </div>
-                              {/* Multi-recipient signing progress */}
                               {vault.signingProgress && vault.signingProgress.total > 1 && (
                                 <div className="mt-1">
                                   <div className="flex items-center gap-2">
