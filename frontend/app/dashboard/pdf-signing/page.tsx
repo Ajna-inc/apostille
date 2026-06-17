@@ -43,6 +43,9 @@ interface PdfVault {
   totalSigners?: number;
   signerIndex?: number;
   signingProgress?: SigningProgress;
+  // Session-based (wallet-originated, no vault)
+  isSessionBased?: boolean;
+  sessionId?: string;
 }
 
 interface Connection {
@@ -403,7 +406,9 @@ export default function PdfSigningPage() {
     setSigning(true);
     try {
       toast.info('Downloading document...');
-      const pdfBlob = await pdfSigningApi.download(vault.vaultId);
+      const pdfBlob = vault.isSessionBased
+        ? await pdfSigningApi.getSessionPdf(vault.sessionId || vault.vaultId)
+        : await pdfSigningApi.download(vault.vaultId);
       const pdfArrayBuffer = await pdfBlob.arrayBuffer();
       const fields = vault.signingFields || [];
 
@@ -453,9 +458,11 @@ export default function PdfSigningPage() {
         // Guided flow: use pre-stamped PDF
         pdfBytes = stampedPdfBytes;
       } else {
-        // Legacy flow: download fresh
+        // Legacy flow: download fresh (use session PDF for wallet-originated requests)
         toast.info('Downloading document...');
-        const pdfBlob = await pdfSigningApi.download(selectedVault.vaultId);
+        const pdfBlob = selectedVault.isSessionBased
+          ? await pdfSigningApi.getSessionPdf(selectedVault.sessionId || selectedVault.vaultId)
+          : await pdfSigningApi.download(selectedVault.vaultId);
         pdfBytes = new Uint8Array(await pdfBlob.arrayBuffer());
       }
 
@@ -468,11 +475,9 @@ export default function PdfSigningPage() {
 
       // Upload the signed PDF back to the server
       toast.info('Uploading signed document...');
-      const response = await pdfSigningApi.uploadSigned(
-        selectedVault.vaultId,
-        signedPdfBytes,
-        signingKey.name
-      );
+      const response = selectedVault.isSessionBased
+        ? await pdfSigningApi.signSession(selectedVault.sessionId || selectedVault.vaultId, signedPdfBytes, signingKey.name)
+        : await pdfSigningApi.uploadSigned(selectedVault.vaultId, signedPdfBytes, signingKey.name);
 
       if (response.success) {
         toast.success('PDF signed successfully! Your private key never left your browser.');
@@ -827,7 +832,7 @@ export default function PdfSigningPage() {
           </span>
         )}
         <h2 className="text-lg font-semibold text-text-primary">{opts.title}</h2>
-        <span className="text-xs text-text-tertiary bg-surface-100 dark:bg-surface-800 rounded-full px-2 py-0.5">
+        <span className="text-xs text-text-tertiary bg-surface-100 dark:bg-surface-300 rounded-full px-2 py-0.5">
           {opts.count}
         </span>
       </div>
@@ -1103,7 +1108,7 @@ export default function PdfSigningPage() {
 
           {/* Tabs */}
           <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
+            <div className="inline-flex bg-surface-200 rounded-xl p-1">
               {[
                 { id: 'all', label: 'All' },
                 { id: 'action', label: 'Action Required' },
@@ -1116,7 +1121,7 @@ export default function PdfSigningPage() {
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
                   className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                     activeTab === tab.id
-                      ? 'bg-white dark:bg-surface-700 text-text-primary shadow-sm'
+                      ? 'bg-surface-50 text-text-primary shadow-sm'
                       : 'text-text-tertiary hover:text-text-primary'
                   }`}
                 >
@@ -1570,7 +1575,7 @@ export default function PdfSigningPage() {
                           </button>
                           {expandedSignedVaultId === vault.vaultId && (
                             <div className="px-6 pb-4">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-surface-50 dark:bg-surface-800/60 border border-border-secondary rounded-lg p-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-surface-50 dark:bg-surface-200/60 border border-border-secondary rounded-lg p-4">
                                 <div className="text-sm">
                                   <div className="text-text-tertiary">Signer</div>
                                   <div className="text-text-primary font-medium">
@@ -1702,12 +1707,18 @@ export default function PdfSigningPage() {
             <div className="px-6 py-4 space-y-4">
               <div>
                 <label className="form-label">PDF File</label>
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  className="input w-full"
-                />
+                <label className="flex items-center gap-3 input w-full cursor-pointer">
+                  <span className="btn btn-secondary btn-sm shrink-0 pointer-events-none">Choose file</span>
+                  <span className="text-sm text-text-tertiary truncate">
+                    {uploadFile ? uploadFile.name : 'No file chosen'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                </label>
               </div>
 
               <div>
@@ -1728,8 +1739,8 @@ export default function PdfSigningPage() {
                     return (
                       <label
                         key={conn.id}
-                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-secondary transition-colors ${
-                          isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : ''
+                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-200 transition-colors ${
+                          isSelected ? 'bg-surface-200' : ''
                         }`}
                       >
                         <input
@@ -1744,7 +1755,7 @@ export default function PdfSigningPage() {
                           }}
                           className="rounded border-border-primary"
                         />
-                        <span className="text-sm">
+                        <span className="text-sm text-text-primary">
                           {conn.theirLabel || conn.id}
                         </span>
                       </label>
@@ -1856,7 +1867,7 @@ export default function PdfSigningPage() {
               {/* Key Management Section */}
               <div className="border border-border-secondary rounded-lg overflow-hidden">
                 {/* Section Header with Tabs */}
-                <div className="bg-surface-50 dark:bg-surface-800 px-4 py-3 border-b border-border-secondary">
+                <div className="bg-surface-50 dark:bg-surface-200 px-4 py-3 border-b border-border-secondary">
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-text-primary">Signing Key</span>
                     {keyModalView === 'select' && (
@@ -1869,7 +1880,7 @@ export default function PdfSigningPage() {
                         </button>
                         <button
                           onClick={() => setKeyModalView('import')}
-                          className="text-xs px-2 py-1 bg-surface-200 text-text-secondary dark:bg-surface-700 rounded hover:bg-surface-300 dark:hover:bg-surface-600"
+                          className="text-xs px-2 py-1 bg-surface-200 text-text-secondary dark:bg-surface-300 rounded hover:bg-surface-300 dark:hover:bg-surface-200"
                         >
                           Import .p12
                         </button>
@@ -1936,7 +1947,7 @@ export default function PdfSigningPage() {
 
                           {/* Selected Key Details */}
                           {selectedKeyId && (
-                            <div className="bg-surface-50 dark:bg-surface-800 rounded-lg p-3">
+                            <div className="bg-surface-50 dark:bg-surface-200 rounded-lg p-3">
                               {(() => {
                                 const key = signingKeys.find(k => k.id === selectedKeyId);
                                 if (!key) return null;
@@ -2301,7 +2312,7 @@ export default function PdfSigningPage() {
                   className="input w-full"
                 >
                   <option value="">-- Select a connection --</option>
-                  {connections.map((conn) => (
+                  {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                     <option key={conn.id} value={conn.id}>
                       {conn.theirLabel || conn.id}
                     </option>
@@ -2460,7 +2471,7 @@ export default function PdfSigningPage() {
                     )}
                   </div>
 
-                  <div className="bg-surface-50 dark:bg-surface-800 rounded-lg p-4 space-y-2">
+                  <div className="bg-surface-50 dark:bg-surface-200 rounded-lg p-4 space-y-2">
                     {verificationResult.signerName && (
                       <div className="flex justify-between text-sm">
                         <span className="text-text-tertiary">Signer</span>
