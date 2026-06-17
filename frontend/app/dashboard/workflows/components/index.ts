@@ -1,5 +1,5 @@
-export { ConnectionContextBar } from './ConnectionContextBar'
-export { QuickStartCards } from './QuickStartCards'
+export { ConnectionContextBar, ConnectionSelector } from './ConnectionContextBar'
+export { QuickStartCards, GoalPicker } from './QuickStartCards'
 export { ActiveInstancePanel } from './ActiveInstancePanel'
 export { TemplatesTable } from './TemplatesTable'
-export { InstancesTable } from './InstancesTable'
+export { InstancesTable, ActiveInstanceCards } from './InstancesTable'
