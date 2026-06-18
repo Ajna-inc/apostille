@@ -213,7 +213,7 @@ export function CredentialProfilesPanel() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-surface-50 dark:bg-surface-900 text-text-primary">
+    <div className="flex-1 min-h-0 flex flex-col bg-surface-50 dark:bg-surface-900 text-text-primary overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b border-border-secondary">
         <div className="flex items-center justify-between">
@@ -251,7 +251,7 @@ export function CredentialProfilesPanel() {
       )}
 
       {/* Profile List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pb-8">
         {profileIds.length === 0 ? (
           <div className="p-4 text-center text-text-tertiary text-sm">
             No credential profiles defined.

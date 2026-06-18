@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { getStatusBadge } from '../../../lib/ui-utils';
 import { useAuth } from '../../context/AuthContext';
 import { credentialDefinitionApi, oid4vpApi } from '../../../lib/api';
 import { QRCodeSVG } from 'qrcode.react';
@@ -167,20 +168,6 @@ export default function OID4VPPage() {
     navigator.clipboard.writeText(text);
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <span className="badge badge-warning">Waiting for Response</span>;
-      case 'received':
-        return <span className="badge badge-primary">Processing</span>;
-      case 'verified':
-        return <span className="badge badge-success">Verified</span>;
-      case 'failed':
-        return <span className="badge badge-error">Failed</span>;
-      default:
-        return <span className="badge badge-gray">{status}</span>;
-    }
-  };
 
   const toggleCredType = (type: string) => {
     setSelectedCredTypes(prev =>

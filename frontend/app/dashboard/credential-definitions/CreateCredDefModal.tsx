@@ -1,7 +1,8 @@
 'use client'
 import React, { useEffect } from 'react'
 import Link from 'next/link'
-import type { CardTemplate } from '../../../lib/credential-designer/types'
+import type { CardTemplate, CraftState } from '../../../lib/credential-designer/types'
+import { exportCraftStateToOCA } from '../../../lib/credential-designer/ocaExporter'
 import type { CredentialFormat } from '../../../lib/api'
 
 interface Schema {
@@ -130,6 +131,20 @@ export default function CreateCredDefModal({
   if (!isOpen) return null
 
   const schema = schemas.find(s => s.id === selectedSchemaId || s.schemaId === selectedSchemaId)
+
+  const ATTR_ROLE_KEYS = ['primary_attribute', 'secondary_attribute', 'tertiary_attribute', 'quaternary_attribute', 'quinary_attribute']
+  const schemaAttrCount = schema?.attributes?.length ?? 0
+  const filteredTemplates = schemaAttrCount > 0
+    ? designerTemplates.filter(template => {
+        const overlay = exportCraftStateToOCA(template.craft_state as CraftState)
+        const branding = { ...(overlay?.branding || {}), ...(template.oca_branding || {}) } as Record<string, unknown>
+        const templateAttrCount = ATTR_ROLE_KEYS.reduce((n, k) => {
+          const v = branding[k]
+          return typeof v === 'string' && v.trim() !== '' ? n + 1 : n
+        }, 0)
+        return templateAttrCount >= schemaAttrCount
+      })
+    : designerTemplates
   const isW3cFormat =
     credentialFormat === 'jwt_vc_json' ||
     credentialFormat === 'jwt_vc_json-ld' ||
@@ -446,21 +461,31 @@ export default function CreateCredDefModal({
               </Link>
             </div>
 
+            {schemaAttrCount > 0 && designerTemplates.length > 0 && filteredTemplates.length === 0 && (
+              <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-700 dark:text-amber-400 text-xs">
+                No card designs match the selected schema ({schemaAttrCount} attributes). <Link href="/dashboard/credential-designer" target="_blank" className="underline font-medium">Create one in Card Designer →</Link>
+              </div>
+            )}
+            {schemaAttrCount > 0 && filteredTemplates.length < designerTemplates.length && filteredTemplates.length > 0 && (
+              <div className="mb-3 text-xs text-gray-400">
+                Showing {filteredTemplates.length} of {designerTemplates.length} designs compatible with this schema ({schemaAttrCount} attributes).
+              </div>
+            )}
             {loadingTemplates ? (
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-400">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
                 Loading templates...
               </div>
-            ) : designerTemplates.length > 0 ? (
+            ) : filteredTemplates.length > 0 ? (
               <div className="grid grid-cols-3 gap-3">
-                {designerTemplates.map(template => {
+                {filteredTemplates.map(template => {
                   const sel = selectedTemplateId === template.id
                   return (
                     <button
                       key={template.id}
                       type="button"
                       onClick={() => onTemplateSelect(template.id)}
-                      className={`text-left border rounded-xl overflow-hidden transition-all relative flex flex-col ${
+                      className={`text-left border rounded-xl overflow-hidden transition-all relative flex flex-col bg-white dark:bg-gray-800 ${
                         sel
                           ? 'border-gray-900 dark:border-white shadow-[0_0_0_1px] shadow-gray-900 dark:shadow-white'
                           : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 hover:-translate-y-0.5 hover:shadow-sm'
@@ -511,14 +536,14 @@ export default function CreateCredDefModal({
                   <div className="text-[11.5px] text-gray-400 text-center leading-snug">Open the Card Designer to build a new OCA bundle.</div>
                 </Link>
               </div>
-            ) : (
+            ) : designerTemplates.length === 0 ? (
               <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <p className="text-sm text-gray-400 mb-2">No saved templates found</p>
                 <Link href="/dashboard/credential-designer" target="_blank" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
                   Open Card Designer →
                 </Link>
               </div>
-            )}
+            ) : null}
           </section>
         </div>
 

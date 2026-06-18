@@ -234,28 +234,28 @@ export default function SigningGuidedView({
   }, [])
 
   return (
-    <div className="fixed inset-0 z-50 bg-white text-black flex flex-col !mt-0">
+    <div className="fixed inset-0 z-50 bg-surface-50 text-text-primary flex flex-col !mt-0">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white text-black border-b border-neutral-200">
+      <div className="flex items-center justify-between px-4 py-3 bg-surface-50 border-b border-border-primary">
         <div className="flex items-center gap-3">
           <button
             onClick={onCancel}
-            className="px-3 py-1.5 rounded text-sm text-black hover:bg-neutral-100"
+            className="px-3 py-1.5 rounded text-sm text-text-secondary hover:bg-surface-200"
           >
             Cancel
           </button>
-          <h3 className="text-lg font-semibold text-black">Review & Sign Document</h3>
+          <h3 className="text-lg font-semibold text-text-primary">Review & Sign Document</h3>
         </div>
         <div className="flex items-center gap-4">
           {/* Progress */}
           <div className="flex items-center gap-2">
-            <div className="h-2 w-32 bg-neutral-200 rounded-full overflow-hidden">
+            <div className="h-2 w-32 bg-surface-300 rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-600 rounded-full transition-all"
+                className="h-full bg-primary-600 rounded-full transition-all"
                 style={{ width: `${requiredFields.length > 0 ? (completedCount / requiredFields.length) * 100 : 0}%` }}
               />
             </div>
-            <span className="text-sm text-neutral-700">
+            <span className="text-sm text-text-secondary">
               {completedCount} / {requiredFields.length} fields
             </span>
           </div>
@@ -263,14 +263,14 @@ export default function SigningGuidedView({
             <button
               onClick={handleFinish}
               disabled={!allRequiredComplete || stamping}
-              className="px-5 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-1.5 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {stamping ? 'Applying...' : 'Continue'}
             </button>
             <button
               type="button"
               onClick={() => setShowOtherActions((prev) => !prev)}
-              className="w-9 h-9 rounded-lg border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+              className="w-9 h-9 rounded-lg border border-border-primary bg-surface-50 text-text-secondary hover:bg-surface-100"
               aria-label="Other actions"
             >
               <svg className="h-5 w-5 mx-auto" viewBox="0 0 24 24" fill="currentColor">
@@ -280,8 +280,8 @@ export default function SigningGuidedView({
               </svg>
             </button>
             {showOtherActions && (
-              <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-neutral-200 bg-white shadow-lg z-10">
-                <div className="px-4 pt-3 pb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-border-primary bg-surface-50 shadow-lg z-10">
+                <div className="px-4 pt-3 pb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
                   Other Actions
                 </div>
                 <button
@@ -290,7 +290,7 @@ export default function SigningGuidedView({
                     setShowOtherActions(false)
                     onCancel()
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-neutral-800 hover:bg-neutral-100"
+                  className="w-full text-left px-4 py-2 text-sm text-text-primary hover:bg-surface-200"
                 >
                   Finish Later
                 </button>
@@ -301,7 +301,7 @@ export default function SigningGuidedView({
                     handleDownloadAndSign()
                   }}
                   disabled={!allRequiredComplete || stamping}
-                  className="w-full text-left px-4 py-2 text-sm text-neutral-800 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full text-left px-4 py-2 text-sm text-text-primary hover:bg-surface-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Download &amp; Sign
                 </button>
@@ -319,7 +319,7 @@ export default function SigningGuidedView({
       )}
 
       {/* PDF viewer */}
-      <div className="flex-1 overflow-hidden bg-white">
+      <div className="flex-1 overflow-hidden bg-surface-200">
         <div className="relative flex h-full">
           <div className="flex-1 overflow-auto p-6 flex justify-center">
             <PdfViewer
@@ -357,7 +357,7 @@ export default function SigningGuidedView({
           {/* Right sidebar */}
           <div className="relative flex h-full">
             {showPagesPanel && totalPages > 1 && (
-              <div className="w-48 bg-bg-secondary border-l border-border-primary p-3 overflow-y-auto">
+              <div className="w-48 bg-surface-100 border-l border-border-primary p-3 overflow-y-auto">
                 <div className="flex items-center gap-2 mb-2 text-text-secondary">
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 4h9l3 3v13H6z" />
@@ -459,7 +459,7 @@ export default function SigningGuidedView({
                 </div>
               </div>
             )}
-            <div className="w-12 bg-bg-secondary border-l border-border-primary flex flex-col items-center py-3 gap-2">
+            <div className="w-12 bg-surface-100 border-l border-border-primary flex flex-col items-center py-3 gap-2">
             <button
               type="button"
               title="Search"
@@ -470,7 +470,7 @@ export default function SigningGuidedView({
                   return next
                 })
               }}
-              className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+              className="w-9 h-9 rounded-lg border border-border-secondary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
             >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -480,7 +480,7 @@ export default function SigningGuidedView({
                 type="button"
                 title="View Pages"
                 onClick={() => setShowPagesPanel((prev) => !prev)}
-                className={`w-9 h-9 rounded-lg border bg-white flex items-center justify-center ${
+                className={`w-9 h-9 rounded-lg border bg-surface-50 flex items-center justify-center ${
                   showPagesPanel
                     ? 'border-border-primary text-text-primary'
                     : 'border-border-secondary text-text-secondary hover:text-text-primary hover:border-border-primary'
@@ -495,7 +495,7 @@ export default function SigningGuidedView({
                 type="button"
                 title="Download"
                 onClick={handleDownload}
-                className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+                className="w-9 h-9 rounded-lg border border-border-secondary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3v12m0 0l4-4m-4 4l-4-4" />
@@ -507,7 +507,7 @@ export default function SigningGuidedView({
                   type="button"
                   title="Zoom Out"
                   onClick={() => setScale((prev) => Math.max(0.25, Math.round((prev - 0.15) * 100) / 100))}
-                  className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+                  className="w-9 h-9 rounded-lg border border-border-secondary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
                 >
                   <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14" />
@@ -517,7 +517,7 @@ export default function SigningGuidedView({
                   type="button"
                   title="Zoom In"
                   onClick={() => setScale((prev) => Math.min(3, Math.round((prev + 0.15) * 100) / 100))}
-                  className="w-9 h-9 rounded-lg border border-border-secondary bg-white text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
+                  className="w-9 h-9 rounded-lg border border-border-secondary bg-surface-50 text-text-secondary hover:text-text-primary hover:border-border-primary flex items-center justify-center"
                 >
                   <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 5v14M5 12h14" />
@@ -529,7 +529,7 @@ export default function SigningGuidedView({
 
           {/* Field list sidebar - scrollable on the right */}
           <div
-            className="absolute w-52 bg-white rounded-lg shadow-lg border border-neutral-200 p-3 max-h-[60vh] overflow-y-auto z-30"
+            className="absolute w-52 bg-surface-50 rounded-lg shadow-lg border border-border-primary p-3 max-h-[60vh] overflow-y-auto z-30"
             style={{ left: fieldBoxPos.x, top: fieldBoxPos.y }}
           >
             <div
@@ -540,10 +540,10 @@ export default function SigningGuidedView({
                 dragOriginRef.current = { x: fieldBoxPos.x, y: fieldBoxPos.y }
               }}
             >
-              <h4 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
                 Required Fields
               </h4>
-              <span className="text-neutral-300 text-xs">Drag</span>
+              <span className="text-text-tertiary text-xs">Drag</span>
             </div>
             {fields.map((field) => {
               const isComplete = !!completions[field.id]
@@ -556,12 +556,12 @@ export default function SigningGuidedView({
                   }}
                   className={`w-full text-left px-2 py-1.5 rounded text-sm mb-1 flex items-center gap-2 ${
                     isComplete
-                      ? 'text-green-700 bg-green-100'
-                      : 'text-neutral-700 hover:bg-neutral-100'
+                      ? 'text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/20'
+                      : 'text-text-secondary hover:bg-surface-200'
                   }`}
                 >
                   <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-xs ${
-                    isComplete ? 'border-green-600 bg-green-600 text-white' : 'border-neutral-300'
+                    isComplete ? 'border-green-600 bg-green-600 text-white' : 'border-border-primary'
                   }`}>
                     {isComplete ? '✓' : ''}
                   </span>

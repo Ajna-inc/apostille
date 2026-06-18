@@ -1,6 +1,6 @@
 const applicationApprovalTemplate = {
   template_id: 'credential-application',
-  version: '1.0.1',
+  version: '1.0.3',
   title: 'Application & Approval',
   instance_policy: { mode: 'multi_per_connection' },
   sections: [{ name: 'Application' }],
@@ -15,9 +15,13 @@ const applicationApprovalTemplate = {
     { from: 'apply', to: 'pending_review', on: 'submit', action: 'save_application' },
     { from: 'pending_review', to: 'issuing', on: 'approve', action: 'offer_credential' },
     { from: 'pending_review', to: 'rejected', on: 'reject' },
+    { from: 'pending_review', to: 'issuing', on: 'offer_received', action: 'request_credential' },
+    { from: 'pending_review', to: 'done', on: 'issued_ack' },
+    { from: 'pending_review', to: 'done', on: 'credential_received' },
     { from: 'issuing', to: 'issuing', on: 'offer_received', action: 'request_credential' },
     { from: 'issuing', to: 'done', on: 'request_received', action: 'issue_credential' },
     { from: 'issuing', to: 'done', on: 'issued_ack' },
+    { from: 'issuing', to: 'done', on: 'credential_received' },
   ],
   catalog: {
     credential_profiles: {
@@ -44,7 +48,7 @@ const applicationApprovalTemplate = {
     profiles: {
       sender: {
         states: {
-          apply: [{ type: 'text', text: 'Waiting for applicant to submit application...' }],
+          apply: [{ type: 'text', text: 'Waiting for applicant to fill in their application...' }],
           pending_review: [
             { type: 'text', text: 'Review the application and approve or reject.' },
             { type: 'submit-button', label: 'Approve', event: 'approve' },
@@ -59,7 +63,7 @@ const applicationApprovalTemplate = {
         states: {
           apply: [{
             type: 'submit-button',
-            label: 'Submit Application',
+            label: 'Fill Application',
             event: 'submit',
             input_schema: {
               type: 'object',
@@ -325,7 +329,7 @@ const proofThenIssueTemplate = {
 
 const kanonAutoIssueTemplate = {
   template_id: 'kanon-auto-issue-on-request',
-  version: '1.0.0',
+  version: '1.0.1',
   title: 'Auto-Issue',
   instance_policy: { mode: 'multi_per_connection' },
   sections: [{ name: 'Main' }],
@@ -338,15 +342,20 @@ const kanonAutoIssueTemplate = {
   ],
   transitions: [
     { from: 'collect', to: 'confirm', on: 'next', action: 'set_context' },
+    // CRMS-to-wallet: sender fires propose manually → sends proposal to wallet
     { from: 'confirm', to: 'await_offer', on: 'propose', action: 'propose_kanon' },
+    // CRMS-to-CRMS: receiver fires propose → propose_kanon sends DIDComm proposal to sender
+    // sender receives proposal_received event → auto-offer immediately
+    { from: 'confirm', to: 'await_issue', on: 'proposal_received', action: 'offer_kanon' },
     // Issuer side: sent proposal, auto-offered
     { from: 'await_offer', to: 'await_issue', on: 'proposal_sent' },
     { from: 'await_offer', to: 'await_issue', on: 'offer_sent' },
-    // Holder side: received proposal/offer
+    // Issuer side (wallet flow): wallet proposes back → offer
     { from: 'await_offer', to: 'await_issue', on: 'proposal_received', action: 'offer_kanon' },
     { from: 'await_offer', to: 'await_issue', on: 'offer_received' },
-    // Issuer side: received request, issue
+    // Holder side: received offer → request credential
     { from: 'await_issue', to: 'await_issue', on: 'offer_received', action: 'request_kanon' },
+    // Issuer side: received request → issue
     { from: 'await_issue', to: 'done', on: 'request_received', action: 'issue_kanon' },
     { from: 'await_issue', to: 'done', on: 'credential_issued' },
     { from: 'await_issue', to: 'done', on: 'credential_received' },
@@ -379,7 +388,7 @@ const kanonAutoIssueTemplate = {
       sender: {
         states: {
           collect: [{ type: 'text', text: 'User is entering their details...' }],
-          confirm: [{ type: 'text', text: 'User is reviewing their details...' }],
+          confirm: [{ type: 'text', text: 'Waiting for receiver to confirm and send request...' }],
           await_offer: [{ type: 'text', text: 'Responding to proposal...' }],
           await_issue: [{ type: 'text', text: 'Issuing credential automatically...' }],
           done: [{ type: 'text', text: 'Credential issuance completed.' }],

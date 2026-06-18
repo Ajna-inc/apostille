@@ -63,7 +63,28 @@ export interface Catalog {
 }
 
 export interface UIElement {
-  type: 'text' | 'button' | 'submit-button' | 'card' | 'container' | 'divider' | 'spacer' | 'list' | 'table' | 'badge' | 'image' | 'video'
+  type:
+    | 'title'
+    | 'text'
+    | 'warning'
+    | 'badge'
+    | 'image'
+    | 'video'
+    | 'divider'
+    | 'spacer'
+    | 'card'
+    | 'container'
+    | 'list'
+    | 'table'
+    | 'input'
+    | 'checkbox'
+    | 'button'
+    | 'submit-button'
+    | 'bar-chart'
+    | 'pie-chart'
+    | 'donut-chart'
+    | 'gauge'
+    | 'timeline'
   text?: string
   label?: string
   event?: string
@@ -72,7 +93,9 @@ export interface UIElement {
   input_schema?: JsonSchema
   children?: UIElement[]
   title?: string
-  items?: string[]
+  level?: 1 | 2 | 3 | 4 | 5 | 6
+  tone?: 'info' | 'warning' | 'success' | 'error'
+  items?: Array<string | { title: string; meta?: string; description?: string }>
   columns?: Array<{ key: string; label: string }>
   rows?: Array<Record<string, unknown>>
   variant?: string
@@ -80,6 +103,20 @@ export interface UIElement {
   alt?: string
   asset?: string
   size?: 'sm' | 'md' | 'lg'
+  name?: string
+  placeholder?: string
+  inputType?: 'text' | 'email' | 'number' | 'date' | 'textarea'
+  required?: boolean
+  helperText?: string
+  defaultValue?: string | number | boolean
+  checked?: boolean
+  data?: Array<{ label: string; value: number; color?: string }>
+  value?: number
+  max?: number
+  min?: number
+  series?: Array<{ label: string; value: number; color?: string }>
+  axisLabel?: string
+  note?: string
 }
 
 export interface JsonSchema {

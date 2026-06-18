@@ -420,6 +420,7 @@ router.route('/')
             issuer?: string;
             issuer_url?: string;
             issuer_description?: string;
+            category?: 'education' | 'professional' | 'membership' | 'government' | 'healthcare' | 'custom';
           };
           branding?: {
             primary_background_color?: string;
@@ -509,10 +510,12 @@ router.route('/')
         console.log('Credential definition registered:', credDefResult);
 
         if (credDefResult.credentialDefinitionState.state !== 'finished') {
+          const reason = credDefResult.credentialDefinitionState.reason || 'unknown reason';
+          console.error('Credential definition registration failed. State:', credDefResult.credentialDefinitionState.state, 'Reason:', reason);
+          console.error('Full result:', JSON.stringify(credDefResult, null, 2));
           res.status(500).json({
             success: false,
-            message: 'Failed to register credential definition',
-            error: credDefResult.credentialDefinitionState.reason
+            message: `Failed to register credential definition: ${reason}`,
           });
           return;
         }

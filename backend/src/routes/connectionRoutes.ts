@@ -48,7 +48,8 @@ router.route('/')
           state: connection.state,
           role: connection.role,
           theirLabel: connection.theirLabel,
-          theirDid: connection.theirDid
+          theirDid: connection.theirDid,
+          myDid: connection.did ?? null,
         }))
       });
     } catch (error: any) {
@@ -80,26 +81,47 @@ router.route('/:connectionId')
       const agent = await getAgent({ tenantId });
       const connection = await agent.didcomm.connections.findById(connectionId);
 
-      if (!connection) {
-        res.status(404).json({
-          success: false,
-          message: `Connection with ID ${connectionId} not found`
+      if (connection) {
+        res.status(200).json({
+          success: true,
+          connection: {
+            id: connection.id,
+            createdAt: connection.createdAt,
+            state: connection.state,
+            role: connection.role,
+            theirLabel: connection.theirLabel,
+            theirDid: connection.theirDid,
+            threadId: connection.threadId,
+            autoAcceptConnection: connection.autoAcceptConnection,
+          }
         });
         return;
       }
 
-      res.status(200).json({
-        success: true,
-        connection: {
-          id: connection.id,
-          createdAt: connection.createdAt,
-          state: connection.state,
-          role: connection.role,
-          theirLabel: connection.theirLabel,
-          theirDid: connection.theirDid,
-          threadId: connection.threadId,
-          autoAcceptConnection: connection.autoAcceptConnection
+      // Fall back to OOB invitation store for await-response/pending invitations
+      try {
+        const oobRecord = await agent.didcomm.oob.findById(connectionId);
+        if (oobRecord) {
+          res.status(200).json({
+            success: true,
+            connection: {
+              id: oobRecord.id,
+              createdAt: oobRecord.createdAt,
+              state: oobRecord.state,
+              role: oobRecord.role,
+              theirLabel: oobRecord.outOfBandInvitation?.label ?? null,
+              theirDid: null,
+              threadId: null,
+              autoAcceptConnection: false,
+            }
+          });
+          return;
         }
+      } catch { /* not in OOB store */ }
+
+      res.status(404).json({
+        success: false,
+        message: `Connection with ID ${connectionId} not found`
       });
     } catch (error: any) {
       console.error(`Failed to get connection ${req.params.connectionId}:`, error);
@@ -107,6 +129,43 @@ router.route('/:connectionId')
         success: false,
         message: error.message || 'Failed to get connection'
       });
+    }
+  })
+  .delete(auth, async (req: Request, res: Response) => {
+    try {
+      const { connectionId } = req.params;
+      const tenantId = req.user.tenantId;
+
+      if (!tenantId) {
+        res.status(400).json({ success: false, message: 'Tenant ID not found in authentication token' });
+        return;
+      }
+
+      const agent = await getAgent({ tenantId });
+      let deleted = false;
+
+      const connection = await agent.didcomm.connections.findById(connectionId);
+      if (connection) {
+        await agent.didcomm.connections.deleteById(connectionId);
+        deleted = true;
+      }
+
+      // Also remove any matching OOB invitation record (await-response invitations
+      // live in the OOB store and are not found via connections.findById)
+      try {
+        const oobRecord = await agent.didcomm.oob.findById(connectionId);
+        if (oobRecord) {
+          await agent.didcomm.oob.deleteById(connectionId);
+          deleted = true;
+        }
+      } catch {
+        // OOB store may not have this record — not an error
+      }
+
+      res.status(200).json({ success: true, message: deleted ? 'Connection deleted' : 'Connection already removed' });
+    } catch (error: any) {
+      console.error(`Failed to delete connection ${req.params.connectionId}:`, error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to delete connection' });
     }
   });
 

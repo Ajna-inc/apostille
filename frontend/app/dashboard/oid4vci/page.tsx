@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { getStatusBadge } from '../../../lib/ui-utils';
 import { useAuth } from '../../context/AuthContext';
 import {
   credentialDefinitionApi,
@@ -236,22 +237,6 @@ export default function OID4VCIPage() {
     navigator.clipboard.writeText(text);
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <span className="badge badge-warning">Pending</span>;
-      case 'token_issued':
-        return <span className="badge badge-primary">Token Issued</span>;
-      case 'credential_request_received':
-        return <span className="badge badge-primary">Request Received</span>;
-      case 'credential_issued':
-        return <span className="badge badge-success">Credential Issued</span>;
-      case 'expired':
-        return <span className="badge badge-error">Expired</span>;
-      default:
-        return <span className="badge badge-gray">{status}</span>;
-    }
-  };
 
   return (
     <div>

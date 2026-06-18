@@ -253,19 +253,17 @@ export default function SchemasPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Schema ID</th>
                 <th>Name</th>
-                <th>Version</th>
                 <th>Attributes</th>
+                <th>Schema ID</th>
+                <th>Version</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {schemas.map((schema) => (
                 <tr key={schema.id}>
-                  <td><span className="mono" style={{ fontSize: 12 }}>{(schema.schemaId || schema.id || '').slice(0, 40)}...</span></td>
                   <td style={{ fontWeight: 500, color: 'var(--ink)' }}>{schema.schema?.name}</td>
-                  <td><span className="tag">v{schema.schema?.version}</span></td>
                   <td>
                     {schema.schema?.attrNames ? (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -280,6 +278,8 @@ export default function SchemasPage() {
                       <span className="muted">—</span>
                     )}
                   </td>
+                  <td><span className="mono" style={{ fontSize: 12 }}>{(schema.schemaId || schema.id || '').slice(0, 40)}...</span></td>
+                  <td><span className="tag">v{schema.schema?.version}</span></td>
                   <td style={{ textAlign: 'right' }}>
                     <button onClick={() => openDetailsModal(schema)} className="btn btn-secondary btn-xs">View</button>
                   </td>

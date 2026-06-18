@@ -19,7 +19,8 @@ import type {
   HistoryEntry,
   StateNodeData,
 } from './types'
-import { DEFAULT_TEMPLATE, CANVAS_CONFIG, ELK_LAYOUT_OPTIONS } from './constants'
+import { DEFAULT_TEMPLATE, CANVAS_CONFIG, ELK_LAYOUT_OPTIONS, makeDefaultElement } from './constants'
+import type { UIElementType } from './constants'
 
 export interface BuilderState {
   // Graph model for visual representation
@@ -233,8 +234,32 @@ export const useBuilderStore = create<BuilderStore>()(
       if (draggingItem.type === 'state') {
         const data = draggingItem.data as { type: StateType }
         get().addState(data.type, x, y)
+      } else if (draggingItem.type === 'action') {
+        const data = draggingItem.data as { typeURI: string }
+        const hitNode = get().nodes.find(n =>
+          x >= n.x && x <= n.x + CANVAS_CONFIG.NODE_WIDTH &&
+          y >= n.y && y <= n.y + CANVAS_CONFIG.NODE_HEIGHT
+        )
+        if (hitNode) {
+          const existingKeys = get().template.actions.map(a => a.key)
+          const base = (data.typeURI.split('/').pop() || 'action').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
+          let key = base
+          let i = 1
+          while (existingKeys.includes(key)) { key = `${base}_${i++}` }
+          get().addAction({ key, typeURI: data.typeURI })
+          get().setSelection({ nodes: [hitNode.id], edges: [] })
+        }
+      } else if (draggingItem.type === 'ui') {
+        const data = draggingItem.data as { elementType: UIElementType }
+        const hitNode = get().nodes.find(n =>
+          x >= n.x && x <= n.x + CANVAS_CONFIG.NODE_WIDTH &&
+          y >= n.y && y <= n.y + CANVAS_CONFIG.NODE_HEIGHT
+        )
+        if (hitNode) {
+          get().addUIElement(hitNode.id, 'sender', makeDefaultElement(data.elementType))
+          get().setSelection({ nodes: [hitNode.id], edges: [] })
+        }
       }
-      // Handle other types as needed
       get().endDrag()
     },
 
@@ -291,6 +316,17 @@ export const useBuilderStore = create<BuilderStore>()(
         // Update selection
         if (s.selection.nodes.includes(oldName)) {
           s.selection.nodes = s.selection.nodes.map(n => n === oldName ? updates.name! : n)
+        }
+        // Update display_hints keys
+        const profiles = s.template.display_hints?.profiles
+        if (profiles) {
+          for (const side of ['sender', 'receiver'] as const) {
+            const states = profiles[side]?.states
+            if (states && oldName in states) {
+              states[updates.name!] = states[oldName]
+              delete states[oldName]
+            }
+          }
         }
       }
 
@@ -452,6 +488,8 @@ export const useBuilderStore = create<BuilderStore>()(
       if (s.template.catalog.credential_profiles) {
         delete s.template.catalog.credential_profiles[profileId]
       }
+      const credKey = `cred:${profileId}`
+      s.selection.nodes = s.selection.nodes.filter(n => n !== credKey)
     }),
 
     addProofProfile: (profileId, profile) => set(s => {
@@ -576,10 +614,11 @@ export const useBuilderStore = create<BuilderStore>()(
 
     // Layout actions
     autoLayout: async () => {
+      const { template } = get()
+      if (template.states.length === 0) return
+
       const ELK = (await import('elkjs/lib/elk.bundled.js')).default
       const elk = new ELK()
-
-      const { template } = get()
 
       const graph = {
         id: 'root',

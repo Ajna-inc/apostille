@@ -130,45 +130,73 @@ router.get('/instances/:instanceId', auth, async (req: Request, res: Response) =
     if (!instanceId) return res.status(400).json({ success: false, message: 'instanceId is required' })
 
     const agent = await getAgent({ tenantId })
-    // Auto-derive ui_profile based on holder DID match
+    const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
+    const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
+    if (!inst) return res.status(404).json({ success: false, message: 'Instance not found' })
+
+    // Auto-derive ui_profile
     try {
-      if (!ui_profile) {
-        const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
-        const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
-        const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
-        if (holderDid) {
-          const connectionId = (inst as any)?.connectionId as string | undefined
-          const conn = connectionId ? await agent.didcomm.connections.getById(connectionId) : undefined
-          const myDid = (conn as any)?.did as string | undefined
-          ui_profile = myDid && holderDid === myDid ? 'receiver' : 'sender'
+      const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
+      const connectionId = (inst as any)?.connectionId as string | undefined
+      if (!ui_profile && holderDid && connectionId) {
+        const conn = await agent.didcomm.connections.getById(connectionId)
+        const myDid = (conn as any)?.did as string | undefined
+        ui_profile = myDid && holderDid === myDid ? 'receiver' : 'sender'
+      }
+      // Sync template from peer if this exact version isn't stored locally
+      const templateId = (inst as any)?.templateId as string | undefined
+      const templateVersion = (inst as any)?.templateVersion as string | undefined
+      if (templateId && connectionId) {
+        const tplRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository) as WorkflowTemplateRepository
+        const existing = templateVersion
+          ? await tplRepo.findByTemplateIdAndVersion(agent.context, templateId, templateVersion)
+          : null
+        if (!existing) {
+          try { await agent.modules.workflow.ensureTemplate({ connection_id: connectionId, template_id: templateId, template_version: templateVersion, waitMs: 5000 }) } catch {}
         }
       }
     } catch {}
 
     const service = agent.dependencyManager.resolve(WorkflowService) as WorkflowService
-    const statusObj = await service.status(
-      agent.context,
-      {
-        instance_id: instanceId,
-        include_ui,
-        include_actions,
-        ...(ui_profile ? { ui_profile } : {}),
-      } as unknown as {
-        instance_id: string
-        include_ui?: boolean
-        include_actions?: boolean
-        ui_profile?: string
-      }
-    )
-    // Attach context for UI previews
+    let statusObj: any
     try {
-      const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
-      const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
-      const statusWithContext = { ...statusObj, context: inst?.context ?? {} }
-      return res.status(200).json({ success: true, status: statusWithContext })
-    } catch {
-      return res.status(200).json({ success: true, status: statusObj })
+      statusObj = await service.status(
+        agent.context,
+        {
+          instance_id: instanceId,
+          include_ui,
+          include_actions,
+          ...(ui_profile ? { ui_profile } : {}),
+        } as unknown as {
+          instance_id: string
+          include_ui?: boolean
+          include_actions?: boolean
+          ui_profile?: string
+        }
+      )
+      console.log(`[instanceStatus] ${instanceId} state=${statusObj?.state} ui_profile=${ui_profile} allowed_events=${JSON.stringify(statusObj?.allowed_events)}`)
+    } catch (err: any) {
+      // service.status() can throw for completed/terminal instances — build a minimal
+      // status from the raw record so the frontend always gets a valid response.
+      console.warn(`[instanceStatus] service.status() threw for ${instanceId} (status=${(inst as any).status}, state=${(inst as any).state}): ${err?.message}`)
+      statusObj = {
+        instance_id: instanceId,
+        state: (inst as any).state ?? '',
+        allowed_events: [],
+        action_menu: [],
+        artifacts: {},
+      }
     }
+
+    return res.status(200).json({
+      success: true,
+      status: {
+        ...statusObj,
+        status: (inst as any).status,
+        context: (inst as any).context ?? {},
+        ...(ui_profile ? { ui_profile } : {}),
+      },
+    })
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to get workflow status' })
   }
@@ -186,12 +214,14 @@ router.post('/instances/:instanceId/advance', auth, async (req: Request, res: Re
 
     const agent = await getAgent({ tenantId })
 
-    // Prevent receiver from sending issuer-only actions
+    // Prevent receiver from sending issuer-only actions; also auto-sync template if missing
+    let _instConnectionId: string | undefined
     try {
       const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository) as WorkflowInstanceRepository
       const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
       const holderDid = (inst as any)?.participants?.holder?.did as string | undefined
       const connectionId = (inst as any)?.connectionId as string | undefined
+      _instConnectionId = connectionId
       if (holderDid && connectionId) {
         const conn = await agent.didcomm.connections.getById(connectionId)
         const myDid = (conn as any)?.did as string | undefined
@@ -200,9 +230,62 @@ router.post('/instances/:instanceId/advance', auth, async (req: Request, res: Re
           return res.status(403).json({ success: false, code: 'forbidden', message: 'Receiver cannot send issuer-only action: send_offer' })
         }
       }
+      // Auto-sync template from peer if this version is missing locally
+      const templateId = (inst as any)?.templateId as string | undefined
+      const templateVersion = (inst as any)?.templateVersion as string | undefined
+      if (templateId && connectionId) {
+        const tplRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository) as WorkflowTemplateRepository
+        const existing = templateVersion
+          ? await tplRepo.findByTemplateIdAndVersion(agent.context, templateId, templateVersion)
+          : null
+        if (!existing) {
+          try { await agent.modules.workflow.ensureTemplate({ connection_id: connectionId, template_id: templateId, template_version: templateVersion, waitMs: 8000 }) } catch {}
+        }
+      }
     } catch {}
 
     const record = await agent.modules.workflow.advance({ instance_id: instanceId, event: triggerEvent, idempotency_key, input })
+
+    if (triggerEvent === 'approve' && _instConnectionId) {
+      try {
+        const payload = {
+          type: 'workflow-application-approved',
+          instanceId: record.instanceId,
+          templateId: record.templateId,
+          templateVersion: record.templateVersion,
+          connectionId: _instConnectionId,
+          state: record.state,
+          status: record.status,
+          at: new Date().toISOString(),
+          reason: typeof input?.reason === 'string' ? input.reason : typeof input?.comment === 'string' ? input.comment : undefined,
+        }
+        await agent.didcomm.basicMessages.sendMessage(_instConnectionId, JSON.stringify(payload))
+        console.log(`[workflow][approve] sent approval signal for instance=${record.instanceId} connection=${_instConnectionId}`)
+      } catch (err: any) {
+        console.warn(`[workflow][approve] failed to send approval signal for instance=${record.instanceId}: ${err?.message || err}`)
+      }
+    }
+
+    if (triggerEvent === 'reject' && _instConnectionId) {
+      try {
+        const payload = {
+          type: 'workflow-application-rejected',
+          instanceId: record.instanceId,
+          templateId: record.templateId,
+          templateVersion: record.templateVersion,
+          connectionId: _instConnectionId,
+          state: record.state,
+          status: record.status,
+          at: new Date().toISOString(),
+          reason: typeof input?.reason === 'string' ? input.reason : typeof input?.comment === 'string' ? input.comment : undefined,
+        }
+        await agent.didcomm.basicMessages.sendMessage(_instConnectionId, JSON.stringify(payload))
+        console.log(`[workflow][reject] sent rejection signal for instance=${record.instanceId} connection=${_instConnectionId}`)
+      } catch (err: any) {
+        console.warn(`[workflow][reject] failed to send rejection signal for instance=${record.instanceId}: ${err?.message || err}`)
+      }
+    }
+
     return res.status(200).json({
       success: true,
       instance: {
@@ -358,6 +441,7 @@ router.get('/instances', auth, async (req: Request, res: Response) => {
         status: r.status,
         createdAt: r.createdAt,
         updatedAt: (r as any).updatedAt,
+        holder_did: (r as any)?.participants?.holder?.did ?? null,
       })),
     })
   } catch (error) {

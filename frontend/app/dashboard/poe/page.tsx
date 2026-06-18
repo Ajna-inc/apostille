@@ -42,6 +42,38 @@ interface Connection {
     theirLabel?: string;
 }
 
+function getStateColor(state: string): string {
+    switch (state) {
+        case 'completed':
+            return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+        case 'request-sent':
+        case 'request-received':
+            return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+        case 'submit-sent':
+        case 'submit-received':
+            return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+        case 'proposed':
+        case 'accepted':
+            return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+        case 'problem':
+        case 'declined':
+            return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+        default:
+            return 'bg-surface-100 text-text-secondary dark:bg-surface-300 dark:text-white';
+    }
+}
+
+function getRoleColor(role: string): string {
+    switch (role) {
+        case 'requester':
+            return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+        case 'prover':
+            return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
+        default:
+            return 'bg-surface-100 text-text-secondary dark:bg-surface-300 dark:text-white';
+    }
+}
+
 export default function PoePage() {
     const [sessions, setSessions] = useState<PoeSession[]>([]);
     const [programs, setPrograms] = useState<Program[]>([]);
@@ -141,38 +173,6 @@ export default function PoePage() {
         }
     };
 
-    const getStateColor = (state: string) => {
-        switch (state) {
-            case 'completed':
-                return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-            case 'request-sent':
-            case 'request-received':
-                return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-            case 'submit-sent':
-            case 'submit-received':
-                return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-            case 'proposed':
-            case 'accepted':
-                return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-            case 'problem':
-            case 'declined':
-                return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-            default:
-                return 'bg-surface-100 text-text-secondary dark:bg-surface-700 dark:text-text-secondary';
-        }
-    };
-
-    const getRoleColor = (role: string) => {
-        switch (role) {
-            case 'requester':
-                return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-            case 'prover':
-                return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
-            default:
-                return 'bg-surface-100 text-text-secondary dark:bg-surface-700 dark:text-text-secondary';
-        }
-    };
-
     const formatDate = (dateString: string) => {
         return new Date(dateString).toLocaleString();
     };
@@ -237,7 +237,7 @@ export default function PoePage() {
                                     className="input w-full"
                                 >
                                     <option value="">Select a connection</option>
-                                    {connections.map((conn) => (
+                                    {[...connections].sort((a, b) => (a.theirLabel || '').localeCompare(b.theirLabel || '')).map((conn) => (
                                         <option key={conn.id} value={conn.id}>
                                             {conn.theirLabel || conn.id.slice(0, 12) + '...'}
                                         </option>

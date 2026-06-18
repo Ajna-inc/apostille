@@ -201,7 +201,7 @@ export default function SignatureAdoptionModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
-      <div className="bg-white rounded-xl shadow-2xl w-[480px] max-h-[90vh] overflow-hidden">
+      <div className="bg-surface-50 rounded-xl shadow-2xl w-[480px] max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-border-primary">
           <h3 className="text-lg font-semibold text-text-primary">
@@ -239,7 +239,7 @@ export default function SignatureAdoptionModal({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={FIELD_LABELS[fieldType].placeholder}
-                className="w-full px-3 py-2 rounded-lg border border-border-primary bg-bg-secondary text-text-primary text-sm mb-4"
+                className="w-full px-3 py-2 rounded-lg border border-border-primary bg-surface-100 text-text-primary text-sm mb-4"
                 autoFocus
               />
               <div className="flex flex-col gap-2">
@@ -250,7 +250,7 @@ export default function SignatureAdoptionModal({
                     className={`px-4 py-3 rounded-lg border-2 text-left transition-all ${
                       selectedFont === font
                         ? 'border-accent-primary bg-accent-primary/10'
-                        : 'border-border-primary hover:border-border-secondary bg-bg-secondary'
+                        : 'border-border-primary hover:border-border-secondary bg-surface-100'
                     }`}
                   >
                     <span
@@ -327,7 +327,7 @@ export default function SignatureAdoptionModal({
               />
               {uploadedImage ? (
                 <div className="flex flex-col items-center gap-3">
-                  <div className="border border-border-primary rounded-lg p-4 bg-white">
+                  <div className="border border-border-primary rounded-lg p-4 bg-surface-50">
                     <img src={uploadedImage} alt="Uploaded signature" className="max-h-32 max-w-full object-contain" />
                   </div>
                   <button

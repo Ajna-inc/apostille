@@ -29,10 +29,19 @@ router.route('/')
         credentials: credentials.map((credential: DidCommCredentialExchangeRecord) => ({
           id: credential.id,
           state: credential.state,
+          role: credential.role,
           createdAt: credential.createdAt,
           connectionId: credential.connectionId,
           ...(credential.metadata.data?.credentialDefinitionId && {
             credentialDefinitionId: credential.metadata.data.credentialDefinitionId
+          }),
+          ...(credential.credentialAttributes && {
+            attributes: Object.fromEntries(
+              credential.credentialAttributes.map((a: any) => [a.name, a.value])
+            )
+          }),
+          ...(credential.metadata && {
+            metadata: credential.metadata
           })
         }))
       });
@@ -64,17 +73,17 @@ router.route('/issue')
 
       const agent = await getAgent({ tenantId });
 
-      const credentialDefinition = await agent.modules.anoncreds.getCredentialDefinition(credentialDefinitionId);
+      const credentialDefinitionResult = await agent.modules.anoncreds.getCredentialDefinition(credentialDefinitionId);
 
-      if (!credentialDefinition) {
+      if (!credentialDefinitionResult?.credentialDefinition) {
         res.status(404).json({
           success: false,
           message: `Credential definition with ID ${credentialDefinitionId} not found`
         });
         return;
       }
-      console.log(JSON.stringify(credentialDefinition), "credentialDdffdefinition");
-      const schemaId = credentialDefinition.credentialDefinition.schemaId;
+      console.log(JSON.stringify(credentialDefinitionResult), "credentialDdffdefinition");
+      const schemaId = credentialDefinitionResult.credentialDefinition.schemaId;
       
       const schema = await agent.modules.anoncreds.getSchema(schemaId);
       
@@ -165,8 +174,11 @@ router.route('/:credentialId')
           createdAt: credential.createdAt,
           connectionId: credential.connectionId,
           attributes: credential.credentialAttributes,
-          ...(credential.metadata.data?.credentialDefinitionId && {
+          ...(credential.metadata?.data?.credentialDefinitionId && {
             credentialDefinitionId: credential.metadata.data.credentialDefinitionId
+          }),
+          ...(credential.metadata && {
+            metadata: credential.metadata
           })
         }
       });

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useBuilderStore } from '@/lib/workflow-builder/store'
 import { BuilderCanvas } from './BuilderCanvas'
 import { BuilderSidebar } from './BuilderSidebar'
@@ -28,9 +28,14 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
   const [isPublishing, setIsPublishing] = useState(false)
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
 
-  // Initialize from props
+  // Track the last JSON we emitted upward so we can break the circular update:
+  // store change → onJsonChange → parent sets templateJson → initialJson changes
+  // → setTemplateFromJson resets selection/nodes → view jumps.
+  const lastEmittedJsonRef = useRef<string>('')
+
+  // Initialize from props — only when the JSON actually comes from outside
   useEffect(() => {
-    if (initialJson) {
+    if (initialJson && initialJson !== lastEmittedJsonRef.current) {
       const success = setTemplateFromJson(initialJson)
       if (success) {
         setJsonText(initialJson)
@@ -42,6 +47,7 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
   useEffect(() => {
     const json = getTemplateJson()
     setJsonText(json)
+    lastEmittedJsonRef.current = json
     onJsonChange?.(json)
   }, [template, getTemplateJson, onJsonChange])
 
@@ -134,13 +140,9 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
   }, [autoLayout])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-border-secondary bg-surface-100 px-4 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text-secondary">Visual Builder</span>
-        </div>
-
+      <div className="flex items-center justify-end border-b border-border-secondary bg-surface-100 px-2 py-2">
         <div className="flex items-center gap-2">
           <button
             onClick={openJsonModal}
@@ -170,7 +172,7 @@ export function WorkflowBuilder({ initialJson, onJsonChange, onPublish }: Workfl
       </div>
 
       {/* Visual Builder Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         <BuilderSidebar />
         <div className="flex-1 min-w-0 relative">
           <BuilderCanvas />

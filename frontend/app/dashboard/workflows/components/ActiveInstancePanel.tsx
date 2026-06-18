@@ -70,7 +70,6 @@ export function ActiveInstancePanel({
   // State counts
   const totalStates = template?.states?.length || 0
   const doneStates = template?.states?.filter((s: any) => {
-    // Find states before current in the linear flow
     const idx = template.states.findIndex((st: any) => st.name === state)
     const sIdx = template.states.findIndex((st: any) => st.name === s.name)
     return sIdx < idx
@@ -180,7 +179,6 @@ export function ActiveInstancePanel({
               </div>
             </div>
           ) : (
-            /* Fallback: use the library WorkflowInstancePanel for form-based actions */
             instanceStatus && (
               <div>
                 <div className="text-[10.5px] font-semibold uppercase tracking-wider mb-2.5" style={{ color: 'var(--ink-4, #8b8b92)' }}>Actions</div>
