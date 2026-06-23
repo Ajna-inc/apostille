@@ -353,7 +353,6 @@ export default function NotificationBell() {
                     style={{
                       display: 'flex', gap: 10, padding: '10px 14px',
                       borderBottom: '1px solid var(--border)',
-                      borderLeft: `3px solid ${f.iconColor}`,
                       cursor: f.onClick ? 'pointer' : 'default',
                       transition: f.onClick ? 'background 0.1s' : undefined,
                       position: 'relative',

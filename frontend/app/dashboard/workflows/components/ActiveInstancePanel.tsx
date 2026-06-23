@@ -26,6 +26,7 @@ export function ActiveInstancePanel({
   loading = false,
 }: ActiveInstancePanelProps) {
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [isAdvancing, setIsAdvancing] = useState(false)
   const onRefreshRef = useRef(onRefresh)
   useEffect(() => { onRefreshRef.current = onRefresh })
 
@@ -153,8 +154,13 @@ export function ActiveInstancePanel({
                   return (
                     <button
                       key={evt.event}
-                      onClick={() => onAdvance(evt.event)}
-                      className="flex items-center gap-3 p-3 rounded-xl border transition-all hover:-translate-y-px"
+                      disabled={isAdvancing}
+                      onClick={async () => {
+                        if (isAdvancing) return
+                        setIsAdvancing(true)
+                        try { await onAdvance(evt.event) } finally { setIsAdvancing(false) }
+                      }}
+                      className="flex items-center gap-3 p-3 rounded-xl border transition-all hover:-translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                       style={{
                         background: style === 'primary' ? 'var(--green-soft, #f0fdf4)' : style === 'danger' ? 'var(--bg-sunk, #f5f4f1)' : 'var(--bg-sunk, #f5f4f1)',
                         borderColor: style === 'primary' ? 'var(--green-border, #86efac)' : 'var(--border, #eee)',

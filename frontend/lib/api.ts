@@ -691,6 +691,22 @@ export const workflowApi = {
     });
   },
 
+  pushTemplate: async (template_id: string, version: string | undefined, connection_id: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/workflows/templates/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id, version, connection_id }),
+    })
+  },
+
+  forceRefreshTemplate: async (template_id: string, version: string | undefined, connection_id: string) => {
+    return fetchWithErrorHandling(`${API_BASE_URL}/api/workflows/templates/force-refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id, version, connection_id }),
+    })
+  },
+
   listTemplates: async () => {
     return fetchWithErrorHandling(`${API_BASE_URL}/api/workflows/templates`);
   },

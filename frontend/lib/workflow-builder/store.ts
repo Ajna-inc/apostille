@@ -158,9 +158,8 @@ const generateStateName = (states: StateDef[], prefix: string = 'state'): string
 
 // Helper to convert template to graph nodes
 const templateToNodes = (template: WorkflowTemplate): BuilderNode[] => {
-  // Use larger spacing for card-based nodes
   const NODE_SPACING_X = CANVAS_CONFIG.NODE_WIDTH + 80
-  return template.states.map((state, index) => ({
+  return (template.states ?? []).map((state, index) => ({
     id: state.name,
     x: state._x ?? index * NODE_SPACING_X + 80,
     y: state._y ?? 120,
@@ -175,7 +174,7 @@ const templateToNodes = (template: WorkflowTemplate): BuilderNode[] => {
 
 // Helper to convert template transitions to edges
 const templateToEdges = (template: WorkflowTemplate): BuilderEdge[] => {
-  return template.transitions.map((trans, index) => ({
+  return (template.transitions ?? []).map((trans, index) => ({
     id: `trans_${index}`,
     from: trans.from,
     to: trans.to,
@@ -250,13 +249,13 @@ export const useBuilderStore = create<BuilderStore>()(
           get().setSelection({ nodes: [hitNode.id], edges: [] })
         }
       } else if (draggingItem.type === 'ui') {
-        const data = draggingItem.data as { elementType: UIElementType }
+        const data = draggingItem.data as { uiType: UIElementType }
         const hitNode = get().nodes.find(n =>
           x >= n.x && x <= n.x + CANVAS_CONFIG.NODE_WIDTH &&
           y >= n.y && y <= n.y + CANVAS_CONFIG.NODE_HEIGHT
         )
         if (hitNode) {
-          get().addUIElement(hitNode.id, 'sender', makeDefaultElement(data.elementType))
+          get().addUIElement(hitNode.id, 'receiver', makeDefaultElement(data.uiType))
           get().setSelection({ nodes: [hitNode.id], edges: [] })
         }
       }
@@ -264,7 +263,7 @@ export const useBuilderStore = create<BuilderStore>()(
     },
 
     // State actions
-    addState: (type, x, y, name) => set(s => {
+    addState: (type, x, y, name) => { get().pushHistory(); set(s => {
       const stateName = name || generateStateName(s.template.states, type === 'start' ? 'start' : type === 'final' ? 'done' : 'state')
       const section = s.template.sections?.[0]?.name || 'Main'
 
@@ -283,7 +282,7 @@ export const useBuilderStore = create<BuilderStore>()(
 
       // Select the new state
       s.selection = { nodes: [stateName], edges: [] }
-    }),
+    }) },
 
     updateState: (name, updates) => set(s => {
       // Update in template
@@ -339,7 +338,7 @@ export const useBuilderStore = create<BuilderStore>()(
       }
     }),
 
-    removeState: (name) => set(s => {
+    removeState: (name) => { get().pushHistory(); set(s => {
       // Remove from template
       s.template.states = s.template.states.filter(st => st.name !== name)
       // Remove related transitions
@@ -350,7 +349,7 @@ export const useBuilderStore = create<BuilderStore>()(
       s.edges = s.edges.filter(e => e.from !== name && e.to !== name)
       // Clear selection if selected
       s.selection.nodes = s.selection.nodes.filter(n => n !== name)
-    }),
+    }) },
 
     updateNodePosition: (id, x, y) => set(s => {
       const node = s.nodes.find(n => n.id === id)
@@ -373,7 +372,7 @@ export const useBuilderStore = create<BuilderStore>()(
       s.mode = 'connect'
     }),
 
-    completeEdge: (toStateName, event) => set(s => {
+    completeEdge: (toStateName, event) => { get().pushHistory(); set(s => {
       if (!s.pendingEdgeFrom) return
 
       // Check if transition already exists
@@ -395,7 +394,7 @@ export const useBuilderStore = create<BuilderStore>()(
       s.template.transitions.push(transition)
 
       // Add visual edge
-      const edgeId = `trans_${s.edges.length}`
+      const edgeId = `trans_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
       s.edges.push({
         id: edgeId,
         from: s.pendingEdgeFrom,
@@ -407,7 +406,7 @@ export const useBuilderStore = create<BuilderStore>()(
       s.selection = { nodes: [], edges: [edgeId] }
       s.pendingEdgeFrom = null
       s.mode = 'select'
-    }),
+    }) },
 
     cancelEdge: () => set(s => {
       s.pendingEdgeFrom = null
@@ -449,16 +448,16 @@ export const useBuilderStore = create<BuilderStore>()(
     }),
 
     // Action definition actions
-    addAction: (actionDef) => set(s => {
+    addAction: (actionDef) => { get().pushHistory(); set(s => {
       // Check if key already exists
       if (s.template.actions.some(a => a.key === actionDef.key)) return
       s.template.actions.push(actionDef)
-    }),
+    }) },
 
-    updateAction: (key, updates) => set(s => {
+    updateAction: (key, updates) => { get().pushHistory(); set(s => {
       const action = s.template.actions.find(a => a.key === key)
       if (action) Object.assign(action, updates)
-    }),
+    }) },
 
     removeAction: (key) => set(s => {
       s.template.actions = s.template.actions.filter(a => a.key !== key)
@@ -511,7 +510,7 @@ export const useBuilderStore = create<BuilderStore>()(
     }),
 
     // Display hints actions
-    addUIElement: (stateName, profile, element) => set(s => {
+    addUIElement: (stateName, profile, element) => { get().pushHistory(); set(s => {
       if (!s.template.display_hints) {
         s.template.display_hints = { profiles: { sender: { states: {} }, receiver: { states: {} } } }
       }
@@ -528,7 +527,7 @@ export const useBuilderStore = create<BuilderStore>()(
         s.template.display_hints.profiles[profile]!.states![stateName] = []
       }
       s.template.display_hints.profiles[profile]!.states![stateName].push(element)
-    }),
+    }) },
 
     updateUIElement: (stateName, profile, index, updates) => set(s => {
       const elements = s.template.display_hints?.profiles?.[profile]?.states?.[stateName]
@@ -576,9 +575,16 @@ export const useBuilderStore = create<BuilderStore>()(
 
     // Template sync
     setTemplate: (template) => set(s => {
-      s.template = template
-      s.nodes = templateToNodes(template)
-      s.edges = templateToEdges(template)
+      // Ensure required arrays exist so templateToNodes/Edges never throw
+      const safe: WorkflowTemplate = {
+        ...template,
+        states: template.states ?? [],
+        transitions: template.transitions ?? [],
+        actions: (template as any).actions ?? [],
+      }
+      s.template = safe
+      s.nodes = templateToNodes(safe)
+      s.edges = templateToEdges(safe)
       s.selection = { nodes: [], edges: [] }
       s.lastJsonSync = Date.now()
     }),

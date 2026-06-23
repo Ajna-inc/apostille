@@ -29,7 +29,7 @@ export function CredentialProfilesPanel() {
   const [loadingSchema, setLoadingSchema] = useState(false)
   const [credDefError, setCredDefError] = useState<string | null>(null)
 
-  const credentialProfiles = template.catalog.credential_profiles || {}
+  const credentialProfiles = template.catalog?.credential_profiles || {}
   const profileIds = Object.keys(credentialProfiles)
 
   // Get the selected profile

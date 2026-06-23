@@ -7,11 +7,12 @@ import { workflowApi, connectionApi, credentialDefinitionApi } from '@/lib/api'
 import { useAuth } from '../../context/AuthContext'
 import { Icon } from '../../components/ui/Icons'
 import { runtimeConfig } from '@/lib/runtimeConfig'
+import { prettify, parseVersionRank } from '@/lib/workflow-builder/utils'
 import { WorkflowProvider, UiProfileProvider } from '@ajna-inc/workflow-react'
 import { PRESET_TEMPLATES, applicationApprovalTemplate } from '../workflows/presetTemplates'
 import { WorkflowVisualizer } from '@/app/components/workflows/WorkflowVisualizer'
-import { PROFILE_LABELS } from '@/app/components/workflows/WorkflowScreenPreview'
 import { WorkflowScreenDesigner } from '@/app/components/workflows/WorkflowScreenDesigner'
+import { useBuilderStore } from '@/lib/workflow-builder/store'
 
 const WorkflowBuilder = dynamic(
   () => import('@/app/components/workflows/builder/WorkflowBuilder').then(m => m.WorkflowBuilder),
@@ -38,9 +39,6 @@ const TONE_STYLES = [
 function toneForId(id: string) {
   let h = 0; for (const c of (id || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff
   return TONE_STYLES[h % 4]
-}
-function prettify(id: string) {
-  return (id || '').replace(/-/g, ' ').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 function matchesSearch(t: any, q: string) {
   if (!q) return true
@@ -114,7 +112,6 @@ function WorkflowDesignerContent() {
     return JSON.stringify(applicationApprovalTemplate, null, 2)
   })
   const [editorView, setEditorView] = useState<EditorView>('flow')
-  const [screenProfile, setScreenProfile] = useState<'sender' | 'receiver'>('receiver')
   const [screenStateName, setScreenStateName] = useState('')
   const [jsonDraft, setJsonDraft] = useState<string>(() => templateJson)
   const [error, setError] = useState<string | null>(null)
@@ -123,6 +120,8 @@ function WorkflowDesignerContent() {
   const [loading, setLoading] = useState(false)
   const [fullYoursTemplate, setFullYoursTemplate] = useState<any>(null)
   const [loadingFull, setLoadingFull] = useState(false)
+  const [selectedYoursVersion, setSelectedYoursVersion] = useState<any>(null)
+  const [editorKey, setEditorKey] = useState(0)
 
   // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -143,54 +142,86 @@ function WorkflowDesignerContent() {
 
   // ── Combined template library ──────────────────────────────────────────────
 
+  // Group published templates by template_id, sorted descending by version
+  const yoursVersionsByTemplateId = useMemo(() => {
+    const map = new Map<string, any[]>()
+    for (const t of publishedTemplates) {
+      const key = t.template_id
+      if (!map.has(key)) map.set(key, [])
+      // Stamp _owner so these records behave correctly anywhere in the UI
+      map.get(key)!.push({ ...t, _owner: 'yours' as const })
+    }
+    map.forEach(versions => versions.sort((a, b) => parseVersionRank(b.version) - parseVersionRank(a.version)))
+    return map
+  }, [publishedTemplates])
+
   const allTemplates = useMemo(() => {
     const builtIn = PRESET_TEMPLATES.map(p => ({
       ...p,
       _owner: 'builtin' as const,
       _selKey: `builtin:${p.template_id}`,
     }))
-    const yours = publishedTemplates.map(t => ({
-      ...t,
-      _owner: 'yours' as const,
-      _selKey: `yours:${t.id || t.template_id}`,
-    }))
+    // Show one entry per template_id (latest version); version picker is in the preview pane
+    const yours: any[] = []
+    yoursVersionsByTemplateId.forEach(versions => {
+      const latest = versions[0]
+      yours.push({
+        ...latest,
+        _owner: 'yours' as const,
+        _selKey: `yours:${latest.template_id}`,
+      })
+    })
     return [...builtIn, ...yours]
-  }, [publishedTemplates])
+  }, [yoursVersionsByTemplateId])
 
   const selectedTemplate = allTemplates.find(t => t._selKey === selectedKey) || null
   const builtInFiltered = allTemplates.filter(t => t._owner === 'builtin' && matchesSearch(t, search))
   const yoursFiltered = allTemplates.filter(t => t._owner === 'yours' && matchesSearch(t, search))
 
+  // Reset version selection when a different template group is selected
+  useEffect(() => {
+    setSelectedYoursVersion(null)
+  }, [selectedKey])
+
+  // The specific version record to fetch/edit (null → use latest = selectedTemplate)
+  const editTarget = selectedKey?.startsWith('yours:')
+    ? (selectedYoursVersion ?? selectedTemplate)
+    : selectedTemplate
+
   // Fetch full template when a "yours" entry is selected (list API only returns metadata)
   useEffect(() => {
-    if (!selectedKey?.startsWith('yours:')) {
-      setFullYoursTemplate(null)
-      return
-    }
-    const template = allTemplates.find(t => t._selKey === selectedKey)
-    if (!template) return
-    if (template.states?.length) {
-      setFullYoursTemplate(template)
+    setFullYoursTemplate(null)
+    if (!selectedKey?.startsWith('yours:')) return
+    const tgt = editTarget
+    if (!tgt) return
+    if (tgt.states?.length) {
+      setFullYoursTemplate({ ...tgt, _owner: 'yours' as const, _selKey: selectedKey })
       return
     }
     let cancelled = false
     setLoadingFull(true)
-    workflowApi.getTemplate(template.template_id, template.version)
+    workflowApi.getTemplate(tgt.template_id, tgt.version)
       .then(res => {
         if (cancelled) return
-        // Backend may return { template: {...} } or the object directly
-        const tpl = res?.template ?? (res?.template_id ? res : null)
+        const tpl = (res?.template?.template_id && Array.isArray(res?.template?.states)) ? res.template
+          : (res?.template_id && Array.isArray(res?.states)) ? res : null
         if (tpl?.states?.length) {
-          setFullYoursTemplate({ ...tpl, _owner: 'yours' as const, _selKey: template._selKey })
+          const base = tpl.version === tgt.version ? tpl : { ...tgt, states: tpl.states, transitions: tpl.transitions, catalog: tpl.catalog, display_hints: tpl.display_hints }
+          setFullYoursTemplate({ ...base, _owner: 'yours' as const, _selKey: selectedKey })
+        } else {
+          // DB template missing states — use preset for preview if available
+          const preset = PRESET_TEMPLATES.find(p => p.template_id === tgt.template_id)
+          if (preset) setFullYoursTemplate({ ...preset, title: tgt.title || preset.title, version: tgt.version, _owner: 'yours' as const, _selKey: selectedKey })
         }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoadingFull(false) })
     return () => { cancelled = true }
-  }, [selectedKey, allTemplates])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, editTarget])
 
   const displayTemplate = selectedTemplate?._owner === 'yours'
-    ? (fullYoursTemplate ?? selectedTemplate)
+    ? (fullYoursTemplate ?? editTarget)
     : selectedTemplate
 
   // When switching back to library mode, try to highlight the template that was in the editor
@@ -210,11 +241,14 @@ function WorkflowDesignerContent() {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   const openEditor = (json: string) => {
+    // Pre-populate the Zustand builder store BEFORE the editor mounts so
+    // WorkflowBuilder always sees the correct template on its first render.
+    useBuilderStore.getState().setTemplateFromJson(json)
+    setEditorKey(k => k + 1)
     setTemplateJson(json)
     setMode('editor')
     setEditorView('flow')
     setJsonDraft(json)
-    setScreenProfile('receiver')
     setScreenStateName('')
     setError(null)
     setSavedAt(null)
@@ -224,15 +258,32 @@ function WorkflowDesignerContent() {
     openEditor(JSON.stringify(BLANK_TEMPLATE, null, 2))
   }
 
+  // Only treat as valid template if it has template_id AND a real states array
+  const parseTpl = (raw: any) => {
+    const obj = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return null } })() : raw
+    return (obj?.template_id && Array.isArray(obj?.states)) ? obj : null
+  }
+
   const handleForkEdit = async (t: any) => {
     setLoading(true)
     try {
       let full = t
-      if (!t.states) {
+      if (t._owner === 'yours' || !t.states) {
         try {
           const res = await workflowApi.getTemplate(t.template_id, t.version)
-          if (res?.template) full = res.template
-        } catch { /* open with what we have — metadata skeleton */ }
+          const tpl = parseTpl(res?.template) ?? parseTpl(res)
+          if (tpl) {
+            full = tpl.version === t.version
+              ? tpl
+              : { ...tpl, template_id: t.template_id, version: t.version, title: t.title }
+          } else {
+            // DB record is missing states (corrupted or metadata-only) — fall back to matching preset
+            const preset = PRESET_TEMPLATES.find(p => p.template_id === t.template_id)
+            if (preset) {
+              full = { ...preset, title: t.title || preset.title, version: t.version }
+            }
+          }
+        } catch { /* open with what we have */ }
       }
       const { _owner, _selKey, ...cleanFull } = full as any
       openEditor(JSON.stringify(cleanFull, null, 2))
@@ -270,8 +321,8 @@ function WorkflowDesignerContent() {
     setError(null)
     try {
       const parsed = JSON.parse(json)
-      // Strip non-schema fields before sending to backend
-      const { _owner, _selKey, ...rest } = parsed as any
+      // Strip UI-only and record-level fields not in the template schema
+      const { _owner, _selKey, id: _id, createdAt: _ca, hash: _hash, states_count: _sc, transitions_count: _tc, ...rest } = parsed as any
       const cleanParsed = {
         ...rest,
         states: (rest.states || []).map(({ _x, _y, ...s }: any) => s),
@@ -282,6 +333,14 @@ function WorkflowDesignerContent() {
       setTemplateJson(json)
       setJsonDraft(json)
       setSavedAt(new Date())
+
+      // Push the updated template to the selected connection so the receiver's
+      // cached copy (including display_hints) is refreshed via DIDComm publish-template
+      if (selectedConnectionId) {
+        workflowApi.pushTemplate(cleanParsed.template_id, cleanParsed.version, selectedConnectionId)
+          .catch(() => { /* non-fatal: receiver will fetch on next ensureTemplate */ })
+      }
+
       setSuccess(`"${parsed.template_id}" published`); setTimeout(() => setSuccess(null), 3000)
       // Refresh published list
       workflowApi.listTemplates().then(res => setPublishedTemplates(res.templates ?? [])).catch(() => { })
@@ -489,6 +548,7 @@ function WorkflowDesignerContent() {
                 </div>
               </div>
               <WorkflowBuilder
+                key={editorKey}
                 initialJson={templateJson}
                 onJsonChange={(json) => setTemplateJson(json)}
                 onPublish={handlePublish}
@@ -500,9 +560,7 @@ function WorkflowDesignerContent() {
             <div style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
               <WorkflowScreenDesigner
                 template={editorTemplate}
-                profile={screenProfile}
                 stateName={screenStateName}
-                onProfileChange={setScreenProfile}
                 onStateChange={setScreenStateName}
                 onTemplateChange={(next) => {
                   const json = JSON.stringify(next, null, 2)
@@ -603,7 +661,7 @@ function WorkflowDesignerContent() {
                     </div>
                     <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-elev)' }}>
                       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>Screen</div>
-                      <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 4, fontWeight: 600 }}>{screenProfile === 'receiver' ? PROFILE_LABELS.receiver.label : PROFILE_LABELS.sender.label}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 4, fontWeight: 600 }}>Wallet</div>
                     </div>
                     <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-elev)' }}>
                       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>Connection</div>
@@ -695,7 +753,14 @@ function WorkflowDesignerContent() {
                   <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-5)', fontWeight: 400 }}>{yoursFiltered.length}</span>
                 </div>
                 {yoursFiltered.map((t, idx) => (
-                  <TemplateRow key={t._selKey} template={t} idx={builtInFiltered.length + idx} selected={selectedKey === t._selKey} onSelect={() => setSelectedKey(t._selKey)} />
+                  <TemplateRow
+                    key={t._selKey}
+                    template={t}
+                    idx={builtInFiltered.length + idx}
+                    selected={selectedKey === t._selKey}
+                    versionCount={yoursVersionsByTemplateId.get(t.template_id)?.length}
+                    onSelect={() => setSelectedKey(t._selKey)}
+                  />
                 ))}
               </>
             )}
@@ -711,6 +776,9 @@ function WorkflowDesignerContent() {
             <LibraryPreview
               template={displayTemplate}
               loading={loading || loadingFull}
+              versions={displayTemplate._owner === 'yours' ? (yoursVersionsByTemplateId.get(displayTemplate.template_id) ?? []) : []}
+              selectedVersion={selectedYoursVersion}
+              onSelectVersion={setSelectedYoursVersion}
               onForkEdit={handleForkEdit}
               onDuplicate={handleDuplicate}
             />
@@ -729,8 +797,8 @@ function WorkflowDesignerContent() {
 // LIBRARY LIST ROW
 // ============================================================================
 
-function TemplateRow({ template, idx, selected, onSelect }: {
-  template: any; idx: number; selected: boolean; onSelect: () => void
+function TemplateRow({ template, idx, selected, versionCount, onSelect }: {
+  template: any; idx: number; selected: boolean; versionCount?: number; onSelect: () => void
 }) {
   const ts = TONE_STYLES[idx % 4]
   const stateCount = template.states?.length ?? template.states_count ?? '?'
@@ -752,11 +820,18 @@ function TemplateRow({ template, idx, selected, onSelect }: {
         <Icon name="workflow" size={15} />
       </div>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: selected ? 600 : 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {template.title || prettify(template.template_id)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: selected ? 600 : 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+            {template.title || prettify(template.template_id)}
+          </div>
+          {versionCount && versionCount > 1 && (
+            <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 5px', borderRadius: 99, background: 'var(--bg-sunk)', color: 'var(--ink-3)', flexShrink: 0, fontFamily: 'var(--font-mono)' }}>
+              {versionCount}v
+            </span>
+          )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-          {template.template_id} · {stateCount} states{transCount > 0 ? ` · ${transCount} tr` : ''}
+          {template.template_id} · v{template.version}{stateCount !== '?' ? ` · ${stateCount} states` : ''}{transCount > 0 ? ` · ${transCount} tr` : ''}
         </div>
       </div>
     </div>
@@ -767,8 +842,9 @@ function TemplateRow({ template, idx, selected, onSelect }: {
 // LIBRARY PREVIEW (right pane)
 // ============================================================================
 
-function LibraryPreview({ template, loading, onForkEdit, onDuplicate }: {
+function LibraryPreview({ template, loading, versions, selectedVersion, onSelectVersion, onForkEdit, onDuplicate }: {
   template: any; loading: boolean
+  versions: any[]; selectedVersion: any; onSelectVersion: (v: any) => void
   onForkEdit: (t: any) => void; onDuplicate: (t: any) => void
 }) {
   const states: any[] = template.states || []
@@ -820,8 +896,35 @@ function LibraryPreview({ template, loading, onForkEdit, onDuplicate }: {
           </div>
         </div>
 
+        {/* Version selector (Yours only, when multiple versions exist) */}
+        {!isBuiltin && versions.length > 1 && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 8 }}>Version</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {versions.map(v => {
+                const active = (selectedVersion?.version ?? versions[0]?.version) === v.version
+                return (
+                  <button
+                    key={v.version}
+                    onClick={() => onSelectVersion(v.version === versions[0]?.version ? null : v)}
+                    style={{
+                      padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: active ? 600 : 400,
+                      border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                      background: active ? 'var(--accent-soft)' : 'var(--bg)',
+                      color: active ? 'var(--accent-ink)' : 'var(--ink-3)',
+                      fontFamily: 'var(--font-mono)', cursor: 'pointer',
+                    }}
+                  >
+                    v{v.version}{v.createdAt ? ` · ${new Date(v.createdAt).toLocaleDateString()}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Meta row */}
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--ink-4)' }}>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--ink-4)' }}>
           {(states.length > 0 || template.states_count) && <span><b style={{ color: 'var(--ink-2)', fontWeight: 500 }}>{states.length || template.states_count}</b> states</span>}
           {(transitions.length > 0 || template.transitions_count) && <span><b style={{ color: 'var(--ink-2)', fontWeight: 500 }}>{transitions.length || template.transitions_count}</b> transitions</span>}
           {template.version && <><span style={{ color: 'var(--ink-5)' }}>·</span><span style={{ fontFamily: 'var(--font-mono)' }}>v{template.version}</span></>}

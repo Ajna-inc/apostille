@@ -101,6 +101,7 @@ export interface UIElement {
   variant?: string
   src?: string
   alt?: string
+  maxHeight?: number
   asset?: string
   size?: 'sm' | 'md' | 'lg'
   name?: string

@@ -349,7 +349,7 @@ router.route('/message')
  * Get messages for a connection
  */
 router.route('/messages/:connectionId')
-  .get(async (req: Request, res: Response) => {
+  .get(auth, async (req: Request, res: Response) => {
     try {
       const { connectionId } = req.params;
       const tenantId = req.user.tenantId;

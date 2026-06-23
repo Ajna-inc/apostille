@@ -150,13 +150,16 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       const agent = await getAgent({ tenantId })
       const rec = await agent.modules.workflow.getTemplate(templateId, version)
       if (!rec) return res.status(404).json({ success: false, message: 'template not found' })
+      const rawTpl = rec.template
+      const template = typeof rawTpl === 'string' ? (() => { try { return JSON.parse(rawTpl) } catch { return rawTpl } })() : rawTpl
       return res.status(200).json({
         success: true,
-        template: {
+        template,
+        meta: {
           id: rec.id,
-          template_id: rec.template.template_id,
-          version: rec.template.version,
-          title: rec.template.title,
+          template_id: (template as any)?.template_id ?? templateId,
+          version: (template as any)?.version ?? version,
+          title: (template as any)?.title,
           createdAt: rec.createdAt,
           hash: rec.hash,
         },
@@ -210,36 +213,19 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
         return res.status(400).json({ success: false, code: 'invalid_connection', message: `connection not found or not owned by tenant: ${connection_id}` })
       }
 
-      // Ensure template exists (exact → latest → any)
+      // Ensure template exists locally; fetch from peer if not cached
       try {
         const { WorkflowTemplateRepository } = await importWorkflow('@ajna-inc/workflow')
         const tplRepo = agent.dependencyManager.resolve(WorkflowTemplateRepository)
         let tplRec = await tplRepo.findByTemplateIdAndVersion(agent.context, template_id, template_version)
         if (!tplRec) {
           try {
-            const ensured = await agent.modules.workflow.ensureTemplate({ connection_id, template_id, template_version, waitMs: 8000 })
-            if (ensured) tplRec = ensured
+            tplRec = await agent.modules.workflow.ensureTemplate({ connection_id, template_id, template_version, waitMs: 8000 })
           } catch {}
-          if (!tplRec) {
-            try {
-              const ensuredLatest = await agent.modules.workflow.ensureTemplate({ connection_id, template_id, waitMs: 8000 })
-              if (ensuredLatest) tplRec = ensuredLatest
-            } catch {}
-          }
-          if (!tplRec) {
-            try {
-              const all = await tplRepo.getAll(agent.context)
-              const any = (all || []).find((r: any) => r?.template?.template_id === template_id)
-              if (any) {
-                tplRec = any
-                startTemplateVersion = any.template.version
-              }
-            } catch {}
-          }
         }
-        if (!tplRec) return res.status(400).json({ success: false, code: 'invalid_template', message: `template not found locally: ${template_id}@${template_version || 'latest'} (try Discover Templates first)` })
+        if (!tplRec) return res.status(400).json({ success: false, code: 'invalid_template', message: `template not found: ${template_id}@${template_version || 'latest'} (try Discover Templates first)` })
       } catch (e) {
-        // If repo resolution fails, continue and let start throw
+        // If repo resolution fails, let start throw with its own error
       }
 
       const record = await agent.modules.workflow.start({
@@ -299,16 +285,6 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       if (!instanceId) return badRequest(res, 'instanceId is required')
       const agent = await getAgent({ tenantId })
 
-      // Optionally derive ui_profile based on instance participants per spec
-      try {
-        if (!ui_profile) {
-          const { WorkflowInstanceRepository } = await importWorkflow('@ajna-inc/workflow')
-          const instanceRepo = agent.dependencyManager.resolve(WorkflowInstanceRepository)
-          const inst = await instanceRepo.getByInstanceId(agent.context, instanceId)
-          // Do not force a profile here; let service derive using opts.viewer or participants mapping
-          // ui_profile remains undefined unless explicitly provided by the caller
-        }
-      } catch {}
       try {
         const status = await agent.modules.workflow.status({ instance_id: instanceId, include_ui, include_actions, ...(ui_profile ? { ui_profile } : {}), ...(viewer_did ? { viewer: { did: viewer_did } } : {}) })
         return res.status(200).json({ success: true, status })

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Icon } from '../../../components/ui/Icons'
+import { STATES_NEEDING_ACTION, relativeTime } from '@/lib/workflow-builder/utils'
 
 interface Instance {
   id: string
@@ -47,19 +48,9 @@ const STATE_PLAIN: Record<string, string> = {
   'failed': 'Failed',
 }
 
-const STATES_NEEDING_ACTION = new Set(['pending_review', 'waiting_for_input', 'request_received'])
-
 function getPlainState(state: string, devMode: boolean) {
   if (devMode) return state
   return STATE_PLAIN[state] || state.replace(/_/g, ' ')
-}
-
-function formatRelativeTime(dateString: string) {
-  const diff = Date.now() - new Date(dateString).getTime()
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
 }
 
 function getStateStyle(state: string, status: string): { dot: string; badge: string } {
@@ -178,7 +169,7 @@ export function ActiveInstanceCards({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
                     <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                      {formatRelativeTime(inst.updatedAt || inst.createdAt)}
+                      {relativeTime(inst.updatedAt || inst.createdAt)}
                     </span>
                     <button
                       onClick={() => onOpen(inst.instance_id)}
@@ -259,6 +250,7 @@ export function InstancesTable({
 }: InstancesTableProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all')
+  const [visibleCount, setVisibleCount] = useState(30)
 
   const getLabel = (connId?: string) => {
     if (!connId) return '—'
@@ -306,7 +298,7 @@ export function InstancesTable({
             {(['all', 'active', 'completed'] as const).map(f => (
               <button
                 key={f}
-                onClick={(e) => { e.stopPropagation(); setFilter(f) }}
+                onClick={(e) => { e.stopPropagation(); setFilter(f); setVisibleCount(30) }}
                 className={`filter-chip ${filter === f ? 'active' : ''}`}
                 style={{ fontSize: 11.5 }}
               >
@@ -336,7 +328,7 @@ export function InstancesTable({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(inst => {
+                  {filtered.slice(0, visibleCount).map(inst => {
                     const s = getStateStyle(inst.state, inst.status)
                     const isActive = inst.instance_id === activeInstanceId
                     return (
@@ -361,7 +353,7 @@ export function InstancesTable({
                           </span>
                         </td>
                         <td style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
-                          {formatRelativeTime(inst.updatedAt || inst.createdAt)}
+                          {relativeTime(inst.updatedAt || inst.createdAt)}
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <button
@@ -376,6 +368,17 @@ export function InstancesTable({
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {visibleCount < filtered.length && (
+            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 12 }}
+                onClick={(e) => { e.stopPropagation(); setVisibleCount(c => c + 30) }}
+              >
+                Show {Math.min(30, filtered.length - visibleCount)} more · {filtered.length - visibleCount} remaining
+              </button>
             </div>
           )}
         </div>

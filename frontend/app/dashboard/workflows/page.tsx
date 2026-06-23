@@ -7,6 +7,7 @@ import { workflowApi, connectionApi, credentialDefinitionApi } from '@/lib/api'
 import { useAuth } from '../../context/AuthContext'
 import { Icon } from '../../components/ui/Icons'
 import { runtimeConfig } from '@/lib/runtimeConfig'
+import { prettify, parseVersionRank, relativeTime, STATES_NEEDING_ACTION, safeMediaSrc, wfGetAt, wfSetAt } from '@/lib/workflow-builder/utils'
 import {
   WorkflowProvider,
   UiProfileProvider,
@@ -46,7 +47,6 @@ type SelectedItem =
 // HELPERS
 // ============================================================================
 
-const STATES_NEEDING_ACTION = new Set(['pending_review', 'waiting_for_input', 'request_received'])
 const WORKFLOW_CONNECTION_STORAGE_KEY = 'workflows.selectedConnectionId'
 
 const AV_PALETTES = [
@@ -80,10 +80,6 @@ function Avatar({ label, id, size = 36 }: { label: string; id: string; size?: nu
       {getInitials(label)}
     </div>
   )
-}
-
-function prettify(id: string) {
-  return (id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 // Compute only the states that lie on the path from start→targetState via the
@@ -130,15 +126,6 @@ function reachableStates(allStates: any[], transitions: any[], fromStateName: st
   return allStates.filter(s => reachable.has(s.name))
 }
 
-function relativeTime(dateString: string) {
-  const diff = Date.now() - new Date(dateString).getTime()
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
-  if (diff < 172_800_000) return 'yesterday'
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
 const TONE_STYLES = [
   { bg: 'oklch(0.94 0.06 250)', color: 'var(--accent-ink)' },
   { bg: 'oklch(0.94 0.06 155)', color: 'var(--green-ink)' },
@@ -147,14 +134,6 @@ const TONE_STYLES = [
 ]
 function toneStyle(idx: number) { return TONE_STYLES[idx % 4] }
 
-function parseVersionRank(version: string) {
-  const cleaned = String(version || '').replace(/^v/, '')
-  const parts = cleaned.split('.').map(part => Number.parseInt(part, 10))
-  const major = Number.isFinite(parts[0]) ? parts[0] : 0
-  const minor = Number.isFinite(parts[1]) ? parts[1] : 0
-  const patch = Number.isFinite(parts[2]) ? parts[2] : 0
-  return major * 10000 + minor * 100 + patch
-}
 
 function sortTemplateVersions(versions: TemplateListItem[]) {
   return [...versions].sort((a, b) => {
@@ -257,6 +236,7 @@ function WorkflowsHub() {
     if (typeof window === 'undefined' || !selectedConnectionId) return
     window.localStorage.setItem(WORKFLOW_CONNECTION_STORAGE_KEY, selectedConnectionId)
   }, [selectedConnectionId])
+
 
   // ── Computed groups ────────────────────────────────────────────────────────
 
@@ -403,8 +383,8 @@ function WorkflowsHub() {
       if (instConnId && templateId) {
         try { await workflowApi.ensureTemplate({ connection_id: instConnId, template_id: templateId, template_version: (instanceStatus as any).template_version, waitMs: 6000 }) } catch { /* ignore */ }
       }
-      await workflowApi.advance({ instance_id: activeInstanceId, event, input, idempotency_key: `ui:${event}:${activeInstanceId}:${Date.now()}` })
-      await refreshStatus()
+      await workflowApi.advance({ instance_id: activeInstanceId, event, input, idempotency_key: `ui:${event}:${activeInstanceId}:${crypto.randomUUID()}` })
+      await Promise.all([refreshStatus(), loadInstances()])
     } catch (err) { setError((err as Error).message || 'Advance failed') }
   }
 
@@ -620,7 +600,7 @@ function WorkflowsHub() {
               template={activeTemplate}
               connectionLabel={activeConnectionLabel}
               onAdvance={handleAdvance}
-              onRefresh={refreshStatus}
+              onRefresh={async () => { await Promise.all([refreshStatus(), loadInstances()]) }}
               loading={statusLoading}
             />
           )}
@@ -947,12 +927,6 @@ function InstanceThreadView({ instanceStatus, template, connectionLabel, onAdvan
   onRefresh: () => Promise<void>; loading: boolean
 }) {
   const [advancing, setAdvancing] = useState<string | null>(null)
-  const onRefreshRef = useRef(onRefresh)
-  useEffect(() => { onRefreshRef.current = onRefresh })
-  useEffect(() => {
-    const id = setInterval(() => { void onRefreshRef.current() }, 3000)
-    return () => clearInterval(id)
-  }, [])
 
   const state: string = instanceStatus?.state || ''
   const allowedEvents: string[] = instanceStatus?.allowed_events || []
@@ -1215,20 +1189,6 @@ function InstanceThreadView({ instanceStatus, template, connectionLabel, onAdvan
 // WORKFLOW UI RENDERER
 // ============================================================================
 
-function wfGetAt(obj: any, path: string[]): any {
-  return path.reduce((acc, k) => (acc && typeof acc === 'object' ? acc[k] : undefined), obj)
-}
-
-function wfSetAt(obj: any, path: string[], value: any): any {
-  const next = { ...(obj || {}) }
-  let cur: any = next
-  for (let i = 0; i < path.length - 1; i++) {
-    const k = path[i]; cur[k] = { ...(cur[k] || {}) }; cur = cur[k]
-  }
-  cur[path[path.length - 1]] = value
-  return next
-}
-
 function WorkflowSchemaFields({ schema, values, onChange, prefix }: {
   schema: any; values: any; onChange: (v: any) => void; prefix: string[]
 }) {
@@ -1325,24 +1285,141 @@ function WorkflowUIRenderer({ items, onAdvance, advancing }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {items.map((item: any, idx: number) => {
+        if (item.type === 'title') {
+          const fs = Math.max(18, Math.min(28, 32 - ((item.level || 2) - 2) * 4))
+          return (
+            <div key={idx} style={{ fontSize: fs, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ink)', lineHeight: 1.3 }}>
+              {item.text || item.label}
+            </div>
+          )
+        }
         if (item.type === 'text') {
           return (
-            <div key={idx} style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            <div key={idx} style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.65 }}>
               {item.text || item.label}
+            </div>
+          )
+        }
+        if (item.type === 'warning') {
+          const toneMap: Record<string, { bg: string; border: string; color: string }> = {
+            info:    { bg: 'oklch(0.96 0.04 250)', border: 'oklch(0.75 0.12 250)', color: 'var(--accent-ink)' },
+            success: { bg: 'oklch(0.96 0.06 155)', border: 'oklch(0.75 0.12 155)', color: 'var(--green-ink)' },
+            error:   { bg: 'oklch(0.96 0.06 25)',  border: 'oklch(0.75 0.12 25)',  color: 'oklch(0.45 0.18 25)' },
+            warning: { bg: 'oklch(0.97 0.05 75)',  border: 'oklch(0.75 0.13 75)',  color: 'var(--amber-ink)' },
+          }
+          const t = toneMap[item.tone || 'warning']
+          return (
+            <div key={idx} style={{ borderRadius: 16, border: `1px solid ${t.border}`, background: t.bg, padding: '14px 14px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: t.color, fontWeight: 700, marginBottom: 6 }}>
+                <Icon name="alert" size={15} />
+                <span>{item.title || 'Warning'}</span>
+              </div>
+              {item.text && <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>{item.text}</div>}
+            </div>
+          )
+        }
+        if (item.type === 'badge') {
+          return (
+            <div key={idx}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', background: 'var(--bg-sunk)', border: '1px solid var(--border)' }}>
+                {item.text || item.label}
+              </span>
+            </div>
+          )
+        }
+        if (item.type === 'divider') {
+          return <div key={idx} style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+        }
+        if (item.type === 'spacer') {
+          return <div key={idx} style={{ height: 18 }} />
+        }
+        if (item.type === 'list') {
+          return (
+            <div key={idx} style={{ borderRadius: 16, border: '1px solid var(--border)', background: 'var(--bg-sunk)', padding: '12px 14px' }}>
+              {(item.title || item.label) && <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 8 }}>{item.title || item.label}</div>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(item.items || []).map((li: any, liIdx: number) => (
+                  <div key={liIdx} style={{ borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', padding: '8px 12px', fontSize: 13, color: 'var(--ink-2)' }}>
+                    {typeof li === 'string' ? li : li.title}
+                    {typeof li !== 'string' && li.meta && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-4)' }}>{li.meta}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        }
+        if (item.type === 'image') {
+          if (!item.url && !item.src && !item.uri && !item.asset) return (
+            <div key={idx} style={{ borderRadius: 16, border: '1px dashed var(--border)', background: 'var(--bg-sunk)', minHeight: 120, display: 'grid', placeItems: 'center', fontSize: 12, color: 'var(--ink-4)' }}>
+              Image placeholder
+            </div>
+          )
+          return (
+            <div key={idx} style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
+              <img src={safeMediaSrc(item.url || item.src || item.uri || item.asset)} alt={item.alt || item.label || ''} style={{ width: '100%', display: 'block', ...(item.maxHeight ? { maxHeight: item.maxHeight, objectFit: 'cover' as const } : {}) }} />
+              {item.caption && <div style={{ fontSize: 12, color: 'var(--ink-4)', padding: '6px 10px' }}>{item.caption}</div>}
+            </div>
+          )
+        }
+        if (item.type === 'video') {
+          return (
+            <div key={idx} style={{ borderRadius: 16, border: '1px solid var(--border)', background: 'var(--bg-sunk)', padding: 16, color: 'var(--ink-3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="video" size={16} />
+                <span style={{ fontSize: 14 }}>{item.label || item.alt || 'Video'}</span>
+              </div>
+              {safeMediaSrc(item.src) && <video src={safeMediaSrc(item.src)} controls style={{ width: '100%', display: 'block', marginTop: 10, borderRadius: 10 }} />}
+              {!item.src && <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)' }}>Video placeholder</div>}
+            </div>
+          )
+        }
+        if (item.type === 'input') {
+          const isTextarea = item.inputType === 'textarea'
+          return (
+            <div key={idx}>
+              {item.label && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 5 }}>{item.label}</div>}
+              {isTextarea
+                ? <textarea placeholder={item.placeholder} rows={4} style={{ width: '100%', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-sunk)', color: 'var(--ink)', padding: '12px 13px', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} readOnly />
+                : <input type={item.inputType || 'text'} placeholder={item.placeholder} style={{ width: '100%', height: 40, borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg-sunk)', color: 'var(--ink)', padding: '0 13px', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} readOnly />
+              }
+              {item.helperText && <div style={{ marginTop: 5, fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5 }}>{item.helperText}</div>}
+            </div>
+          )
+        }
+        if (item.type === 'checkbox') {
+          return (
+            <label key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, borderRadius: 16, border: '1px solid var(--border)', background: 'var(--bg-sunk)', padding: 14 }}>
+              <input type="checkbox" readOnly style={{ accentColor: 'var(--accent)', marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>{item.label || 'Checkbox'}</div>
+                {item.helperText && <div style={{ marginTop: 4, fontSize: 11.5, lineHeight: 1.5, color: 'var(--ink-4)' }}>{item.helperText}</div>}
+              </div>
+            </label>
+          )
+        }
+        if (item.type === 'card' || item.type === 'container') {
+          return (
+            <div key={idx} style={{ borderRadius: 18, border: '1px solid var(--border)', background: 'var(--bg-sunk)', padding: 14 }}>
+              {(item.title || item.label) && <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 10 }}>{item.title || item.label}</div>}
+              {item.text && <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{item.text}</div>}
             </div>
           )
         }
         const event: string = item.event || ''
         if (item.type === 'submit-button' && (item.input_schema || item.schema)) {
           return (
-            <WorkflowSchemaForm
-              key={idx}
-              schema={item.input_schema || item.schema}
-              label={item.label || evtLabel(event)}
-              event={event}
-              onSubmit={onAdvance}
-              disabled={advancing !== null}
-            />
+            <div key={idx} style={{ borderRadius: 18, border: '1px solid var(--border)', background: 'var(--bg-sunk)', padding: 14 }}>
+              <div style={{ marginBottom: 10, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)' }}>
+                {item.title || item.label || evtLabel(event)}
+              </div>
+              <WorkflowSchemaForm
+                schema={item.input_schema || item.schema}
+                label={item.label || evtLabel(event)}
+                event={event}
+                onSubmit={onAdvance}
+                disabled={advancing !== null}
+              />
+            </div>
           )
         }
         if (item.type === 'button' || item.type === 'submit-button') {
@@ -1353,8 +1430,8 @@ function WorkflowUIRenderer({ items, onAdvance, advancing }: {
               onClick={() => onAdvance(event)}
               disabled={advancing !== null || item.disabled}
               style={{
-                display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-start',
-                padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '11px 14px', borderRadius: 999, fontSize: 13.5, fontWeight: 600,
                 border: `1px solid ${s.borderColor}`, background: s.bg, color: s.color,
                 cursor: advancing ? 'not-allowed' : 'pointer',
                 opacity: advancing && advancing !== event ? 0.6 : 1,

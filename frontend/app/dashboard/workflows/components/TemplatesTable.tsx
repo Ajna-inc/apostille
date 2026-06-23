@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Icon } from '../../../components/ui/Icons'
+import { parseVersionRank } from '@/lib/workflow-builder/utils'
 
 interface TemplateItem {
   id: string
@@ -35,13 +36,8 @@ function groupByTemplateId(templates: TemplateItem[]) {
   return map
 }
 
-function parseVersion(v: string) {
-  const parts = v.replace(/^v/, '').split('.').map(Number)
-  return parts[0] * 10000 + (parts[1] || 0) * 100 + (parts[2] || 0)
-}
-
 function latestVersion(versions: TemplateItem[]) {
-  return [...versions].sort((a, b) => parseVersion(b.version) - parseVersion(a.version))[0]
+  return [...versions].sort((a, b) => parseVersionRank(b.version) - parseVersionRank(a.version))[0]
 }
 
 export function TemplatesTable({

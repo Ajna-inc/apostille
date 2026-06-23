@@ -1,21 +1,78 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../ui/Icons'
 import { makeDefaultElement, UI_ELEMENT_LABELS } from '@/lib/workflow-builder/constants'
 import type { UIElement, WorkflowTemplate } from '@/lib/workflow-builder/types'
 import type { ProfileName, UIElementType } from '@/lib/workflow-builder/constants'
 import { PROFILE_LABELS } from './WorkflowScreenPreview'
+import { prettify as _prettify, wfGetAt, wfSetAt, safeMediaSrc } from '@/lib/workflow-builder/utils'
 
 type DragPayload =
   | { kind: 'palette'; type: UIElementType }
   | { kind: 'move'; fromIndex: number }
 
+type DeviceKind = 'phone' | 'tablet' | 'website'
+
+const DEVICE_GROUPS: { group: string; kind: DeviceKind; devices: { label: string; width: number; height?: number }[] }[] = [
+  {
+    group: 'iPhone',
+    kind: 'phone',
+    devices: [
+      { label: 'iPhone 16 Pro', width: 393 },
+      { label: 'iPhone 16', width: 390 },
+      { label: 'iPhone 15 Pro', width: 393 },
+      { label: 'iPhone 14', width: 390 },
+      { label: 'iPhone SE', width: 375 },
+    ],
+  },
+  {
+    group: 'Android',
+    kind: 'phone',
+    devices: [
+      { label: 'Galaxy S25 Ultra', width: 412 },
+      { label: 'Galaxy S24', width: 384 },
+      { label: 'Galaxy S23', width: 393 },
+      { label: 'Galaxy A55', width: 412 },
+      { label: 'Pixel 9 Pro', width: 412 },
+      { label: 'Pixel 8', width: 412 },
+    ],
+  },
+  {
+    group: 'iPad',
+    kind: 'tablet',
+    devices: [
+      { label: 'iPad Pro 13"', width: 1024 },
+      { label: 'iPad Pro 11"', width: 834 },
+      { label: 'iPad Air', width: 820 },
+      { label: 'iPad mini', width: 744 },
+    ],
+  },
+  {
+    group: 'Android Tablet',
+    kind: 'tablet',
+    devices: [
+      { label: 'Galaxy Tab S9 Ultra', width: 1280 },
+      { label: 'Galaxy Tab S9+', width: 1012 },
+      { label: 'Galaxy Tab S9', width: 834 },
+      { label: 'Pixel Tablet', width: 1280 },
+    ],
+  },
+  {
+    group: 'Web',
+    kind: 'website',
+    devices: [
+      { label: 'Desktop', width: 1440 },
+    ],
+  },
+]
+
+const ALL_DEVICES = DEVICE_GROUPS.flatMap(g => g.devices.map(d => ({ ...d, kind: g.kind, group: g.group })))
+type AnyDevice = typeof ALL_DEVICES[number]
+
 interface WorkflowScreenDesignerProps {
   template: WorkflowTemplate | null
-  profile: ProfileName
   stateName: string
-  onProfileChange: (profile: ProfileName) => void
   onStateChange: (stateName: string) => void
   onTemplateChange: (template: WorkflowTemplate) => void
   connectionLabel?: string
@@ -33,9 +90,7 @@ const DRAG_MIME = 'application/x-workflow-screen-element'
 
 const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6']
 
-function prettify(id: string) {
-  return (id || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
+const prettify = _prettify
 
 function cloneTemplate(template: WorkflowTemplate): WorkflowTemplate {
   return JSON.parse(JSON.stringify(template))
@@ -237,22 +292,6 @@ function ToggleField({ label, checked, onChange, helper }: { label: string; chec
 
 function JsonField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   return <TextAreaField label={label} value={value} onChange={onChange} placeholder={placeholder} mono />
-}
-
-function wfGetAt(obj: any, path: string[]): any {
-  return path.reduce((acc, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj)
-}
-
-function wfSetAt(obj: any, path: string[], value: any): any {
-  const next = { ...(obj || {}) }
-  let current: any = next
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i]
-    current[key] = { ...(current[key] || {}) }
-    current = current[key]
-  }
-  current[path[path.length - 1]] = value
-  return next
 }
 
 function WorkflowSchemaFields({ schema, values, onChange, prefix }: {
@@ -489,7 +528,7 @@ function ScreenBlock({
       case 'badge':
         return <div style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', background: 'var(--surface-200, var(--bg-sunk))', border: '1px solid var(--border)' }}>{element.text || element.label || 'Badge'}</div>
       case 'image':
-        return element.src ? <img src={element.src} alt={element.alt || element.label || 'Preview image'} style={{ width: '100%', borderRadius: 16, objectFit: 'cover', maxHeight: 220 }} /> : <div style={{ borderRadius: 16, border: '1px dashed var(--border)', background: 'var(--bg-sunk)', minHeight: 120, display: 'grid', placeItems: 'center', color: 'var(--ink-4)' }}>Image placeholder</div>
+        return safeMediaSrc(element.src) ? <img src={safeMediaSrc(element.src)} alt={element.alt || element.label || 'Preview image'} style={{ width: '100%', borderRadius: 16, display: 'block', ...(element.maxHeight ? { maxHeight: element.maxHeight, objectFit: 'cover' as const } : {}) }} /> : <div style={{ borderRadius: 16, border: '1px dashed var(--border)', background: 'var(--bg-sunk)', minHeight: 120, display: 'grid', placeItems: 'center', color: 'var(--ink-4)' }}>Image placeholder</div>
       case 'video':
         return <div style={{ borderRadius: 16, border: '1px solid var(--border)', background: 'var(--bg-sunk)', padding: 16, color: 'var(--ink-3)' }}><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="video" size={16} /><span>{element.label || element.alt || 'Video'}</span></div></div>
       case 'divider':
@@ -649,62 +688,10 @@ function PaletteItem({ type, onAdd }: { type: UIElementType; onAdd: () => void }
         e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ kind: 'palette', type }))
       }}
       onClick={onAdd}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg)', cursor: 'grab', color: 'var(--ink)', userSelect: 'none' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg)', cursor: 'grab', color: 'var(--ink)', userSelect: 'none', fontSize: 12, fontWeight: 500 }}
     >
-      <div style={{ width: 24, height: 24, borderRadius: 7, background: 'var(--bg-elev)', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', flexShrink: 0 }}>
-        <Icon name={paletteIconName(type) as any} size={12} />
-      </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{UI_ELEMENT_LABELS[type]}</div>
-        <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>Drag into the simulator</div>
-      </div>
-    </div>
-  )
-}
-
-function StateRail({
-  states,
-  stateName,
-  onStateChange,
-}: {
-  states: NonNullable<WorkflowTemplate['states']>
-  stateName: string
-  onStateChange: (name: string) => void
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {states.map((state, index) => {
-        const active = state.name === stateName
-        const dot = state.type === 'start' ? 'var(--green)' : state.type === 'final' ? 'var(--violet)' : 'var(--accent)'
-        return (
-          <button
-            key={state.name}
-            onClick={() => onStateChange(state.name)}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '18px 1fr',
-              gap: 10,
-              padding: '10px 12px',
-              borderRadius: 14,
-              border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-              background: active ? 'var(--accent-soft)' : 'var(--bg)',
-              textAlign: 'left',
-              color: 'inherit',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
-            <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
-              <div style={{ width: 11, height: 11, borderRadius: '50%', background: dot, marginTop: 4 }} />
-              {index < states.length - 1 && <div style={{ position: 'absolute', top: 16, bottom: -16, width: 2, background: 'var(--border)' }} />}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{prettify(state.name)}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 3 }}>{state.type}{state.section ? ` · ${state.section}` : ''}</div>
-            </div>
-          </button>
-        )
-      })}
+      <Icon name={paletteIconName(type) as any} size={11} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{UI_ELEMENT_LABELS[type]}</span>
     </div>
   )
 }
@@ -895,6 +882,7 @@ function ElementInspector({
         <>
           <TextField label="Src (URL)" value={element.src || ''} onChange={v => update({ src: v || undefined })} mono />
           <TextField label="Alt" value={element.alt || ''} onChange={v => update({ alt: v || undefined })} />
+          <TextField label="Max height (px)" value={element.maxHeight ? String(element.maxHeight) : ''} onChange={v => update({ maxHeight: v ? Number(v) : undefined })} />
         </>
       )}
 
@@ -926,22 +914,170 @@ function ElementInspector({
   )
 }
 
+const PHONE_CONFIGS: Record<string, { cornerRadius: number; btnRadius: number; top: 'notch' | 'dynamicIsland' | 'punchHole' | 'none'; bottom: 'homeIndicator' | 'homeButton'; leftBtns: number[][] }> = {
+  'iPhone 16 Pro': { cornerRadius: 46, btnRadius: 3, top: 'dynamicIsland', bottom: 'homeIndicator', leftBtns: [[72, 28], [112, 52], [172, 52]] },
+  'iPhone 16':     { cornerRadius: 44, btnRadius: 3, top: 'dynamicIsland', bottom: 'homeIndicator', leftBtns: [[72, 28], [112, 52], [172, 52]] },
+  'iPhone 15 Pro': { cornerRadius: 46, btnRadius: 3, top: 'dynamicIsland', bottom: 'homeIndicator', leftBtns: [[72, 28], [112, 52], [172, 52]] },
+  'iPhone 14':     { cornerRadius: 44, btnRadius: 3, top: 'notch',         bottom: 'homeIndicator', leftBtns: [[72, 28], [112, 52], [172, 52]] },
+  'iPhone SE':     { cornerRadius: 20, btnRadius: 3, top: 'none',          bottom: 'homeButton',    leftBtns: [[80, 52], [140, 52]] },
+  'Galaxy S25 Ultra': { cornerRadius: 38, btnRadius: 2, top: 'punchHole',  bottom: 'homeIndicator', leftBtns: [[80, 60], [148, 44]] },
+  'Galaxy S24':    { cornerRadius: 42, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[80, 60], [148, 44]] },
+  'Galaxy S23':    { cornerRadius: 40, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[80, 60], [148, 44]] },
+  'Galaxy A55':    { cornerRadius: 36, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[100, 56], [164, 44]] },
+  'Pixel 9 Pro':   { cornerRadius: 40, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[100, 72]] },
+  'Pixel 8':       { cornerRadius: 38, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[100, 72]] },
+  'iPad Pro 13"':  { cornerRadius: 18, btnRadius: 2, top: 'none',          bottom: 'homeIndicator', leftBtns: [[120, 80]] },
+  'iPad Pro 11"':  { cornerRadius: 18, btnRadius: 2, top: 'none',          bottom: 'homeIndicator', leftBtns: [[100, 72]] },
+  'iPad Air':      { cornerRadius: 18, btnRadius: 2, top: 'none',          bottom: 'homeIndicator', leftBtns: [[100, 72]] },
+  'iPad mini':     { cornerRadius: 18, btnRadius: 2, top: 'none',          bottom: 'homeIndicator', leftBtns: [[80, 60]] },
+  'Galaxy Tab S9 Ultra': { cornerRadius: 16, btnRadius: 2, top: 'punchHole', bottom: 'homeIndicator', leftBtns: [[120, 80]] },
+  'Galaxy Tab S9+': { cornerRadius: 16, btnRadius: 2, top: 'punchHole',    bottom: 'homeIndicator', leftBtns: [[100, 72]] },
+  'Galaxy Tab S9': { cornerRadius: 16, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[100, 60]] },
+  'Pixel Tablet':  { cornerRadius: 20, btnRadius: 2, top: 'punchHole',     bottom: 'homeIndicator', leftBtns: [[120, 72]] },
+}
+
+const PHONE_HEIGHTS: Record<string, number> = {
+  'iPhone 16 Pro': 852, 'iPhone 16': 844, 'iPhone 15 Pro': 852, 'iPhone 14': 844, 'iPhone SE': 667,
+  'Galaxy S25 Ultra': 918, 'Galaxy S24': 832, 'Galaxy S23': 851, 'Galaxy A55': 900, 'Pixel 9 Pro': 896, 'Pixel 8': 896,
+  'iPad Pro 13"': 1366, 'iPad Pro 11"': 1194, 'iPad Air': 1180, 'iPad mini': 1133,
+  'Galaxy Tab S9 Ultra': 1848, 'Galaxy Tab S9+': 1332, 'Galaxy Tab S9': 1280, 'Pixel Tablet': 1920,
+}
+
+
+function WebsiteFrame({ frameTitle, stateName, children }: { frameTitle: string; stateName: string; children: React.ReactNode }) {
+  return (
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 10, overflow: 'hidden', background: '#0f1117', boxShadow: '0 8px 40px -8px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.07)' }}>
+
+      {/* Instance header */}
+      <div style={{ flexShrink: 0, padding: '14px 28px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>HY</div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>hyperbola2</div>
+          <div style={{ fontSize: 11, color: '#475569', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+            <span style={{ color: '#6366f1' }}>{frameTitle || 'Workflow'}</span>
+            <span>·</span>
+            <span>{stateName || 'state'}</span>
+            <span>·</span>
+            <span>Started 2d ago</span>
+            <span>·</span>
+            <span style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', borderRadius: 5, padding: '1px 7px', fontSize: 10.5, fontWeight: 600 }}>Receiving</span>
+          </div>
+        </div>
+        <div style={{ marginLeft: 'auto', background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 8, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#eab308' }} />
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#eab308' }}>NEEDS YOU</span>
+        </div>
+      </div>
+
+      {/* Content blocks (scrollable) */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '28px 40px' }}>
+        <div style={{ maxWidth: 700 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#6366f1', marginBottom: 4 }}>Action needed</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#94a3b8', marginBottom: 20 }}>{prettify(stateName || 'State')}</div>
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PhoneFrame({ model, width, children }: { model: AnyDevice; width: number; children: React.ReactNode }) {
+  const screenHeight = PHONE_HEIGHTS[model.label] ?? 844
+  const cfg = PHONE_CONFIGS[model.label] ?? PHONE_CONFIGS['iPhone 14']
+  const cr = cfg.cornerRadius
+  const btn: React.CSSProperties = {
+    position: 'absolute', width: 3, background: 'linear-gradient(90deg, #3a3a3c, #2a2a2c)',
+    borderRadius: `${cfg.btnRadius}px 0 0 ${cfg.btnRadius}px`,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.3)',
+  }
+  const btnR: React.CSSProperties = {
+    ...btn, right: -3, left: 'unset',
+    borderRadius: `0 ${cfg.btnRadius}px ${cfg.btnRadius}px 0`,
+  }
+  return (
+    <div style={{ position: 'relative', width: `min(${width}px, 100%)`, height: 'fit-content', display: 'inline-block' }}>
+      {/* Left buttons */}
+      {cfg.leftBtns.map(([top, h], i) => (
+        <div key={i} style={{ ...btn, left: -3, top, height: h }} />
+      ))}
+      {/* Right power button */}
+      <div style={{ ...btnR, top: 130, height: 68 }} />
+
+      {/* Body */}
+      <div style={{
+        borderRadius: cr + 8,
+        background: 'linear-gradient(160deg, #2e2e30 0%, #1c1c1e 60%, #141416 100%)',
+        padding: '11px 9px 14px',
+        boxShadow: '0 60px 160px -40px rgba(0,0,0,0.95), 0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px rgba(255,255,255,0.06)',
+      }}>
+        {/* Screen glass */}
+        <div style={{ borderRadius: cr, background: '#f1f5f9', overflow: 'hidden', position: 'relative', aspectRatio: `${model.width} / ${screenHeight}`, display: 'flex', flexDirection: 'column' }}>
+          {/* Top chrome: notch / dynamic island / punch-hole */}
+          {cfg.top === 'notch' && (
+            <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 130, height: 28, background: '#1c1c1e', borderRadius: '0 0 20px 20px', zIndex: 10 }} />
+          )}
+          {cfg.top === 'dynamicIsland' && (
+            <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', width: 110, height: 30, background: '#1c1c1e', borderRadius: 20, zIndex: 10 }} />
+          )}
+          {cfg.top === 'punchHole' && (
+            <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', width: 12, height: 12, background: '#1c1c1e', borderRadius: '50%', zIndex: 10 }} />
+          )}
+
+          {/* Status bar — fixed, no shrink */}
+          <div style={{ flexShrink: 0, padding: cfg.top === 'notch' ? '32px 18px 6px' : cfg.top === 'dynamicIsland' ? '48px 18px 6px' : '14px 18px 6px', display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: '#475569' }}>
+            <span>9:41</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10 }}>
+              <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+                <rect x="0" y="6" width="2" height="4" rx="0.5" fill="currentColor" opacity="0.4"/>
+                <rect x="3" y="4" width="2" height="6" rx="0.5" fill="currentColor" opacity="0.6"/>
+                <rect x="6" y="2" width="2" height="8" rx="0.5" fill="currentColor" opacity="0.8"/>
+                <rect x="9" y="0" width="2" height="10" rx="0.5" fill="currentColor"/>
+                <rect x="11.5" y="2" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1" fill="none" opacity="0.6"/>
+                <rect x="12" y="3.5" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.6"/>
+              </svg>
+            </span>
+          </div>
+
+          {/* Scrollable content area */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+            {children}
+          </div>
+
+          {/* Bottom chrome — fixed, no shrink */}
+          {cfg.bottom === 'homeIndicator' && (
+            <div style={{ flexShrink: 0, padding: '8px 0 10px', display: 'flex', justifyContent: 'center', background: '#f1f5f9' }}>
+              <div style={{ width: 100, height: 4, borderRadius: 2, background: '#1c1c1e', opacity: 0.18 }} />
+            </div>
+          )}
+          {cfg.bottom === 'homeButton' && (
+            <div style={{ flexShrink: 0, padding: '10px 0 14px', display: 'flex', justifyContent: 'center', background: '#f1f5f9' }}>
+              <div style={{ width: 42, height: 42, borderRadius: '50%', border: '2px solid rgba(0,0,0,0.15)', background: 'linear-gradient(145deg, #e2e8f0, #cbd5e1)', boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.8), 0 1px 3px rgba(0,0,0,0.15)' }} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function WorkflowScreenDesigner({
   template,
-  profile,
   stateName,
-  onProfileChange,
   onStateChange,
   onTemplateChange,
   connectionLabel,
   className,
 }: WorkflowScreenDesignerProps) {
+  const profile: ProfileName = 'receiver'
   const states = template?.states || []
   const activeStateName = useMemo(() => {
     if (!states.length) return stateName
     if (stateName && states.some(state => state.name === stateName)) return stateName
     return states[0]?.name || stateName
   }, [stateName, states])
+
+  const [deviceIdx, setDeviceIdx] = useState(0)
+  const device = ALL_DEVICES[deviceIdx]
 
   const elements = useStateElements(template, profile, activeStateName)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(elements.length ? 0 : null)
@@ -953,7 +1089,7 @@ export function WorkflowScreenDesigner({
       return
     }
     setSelectedIndex(prev => (prev != null && prev < elements.length ? prev : 0))
-  }, [elements.length, activeStateName, profile])
+  }, [elements.length, activeStateName])
 
   useEffect(() => {
     if (!states.length) return
@@ -1034,57 +1170,86 @@ export function WorkflowScreenDesigner({
   }
 
   const frameTitle = template?.title || template?.template_id || 'Workflow'
-  const isSender = profile === 'sender'
+
+  const blockList = (dropHandler: (payload: DragPayload) => void) => elements.length > 0 ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {elements.map((element, index) => (
+        <ScreenBlock
+          key={`${element.type}-${index}`}
+          element={element}
+          index={index}
+          selected={index === selectedIndex}
+          onSelect={() => setSelectedIndex(index)}
+          onDropData={payload => handleDrop(payload, index)}
+          onMoveUp={index > 0 ? () => moveAt(index, -1) : undefined}
+          onMoveDown={index < elements.length - 1 ? () => moveAt(index, 1) : undefined}
+          runtimeValue={runtimeValues[`${profile}:${activeStateName}:${index}`]}
+          onRuntimeValue={value => setRuntimeValues(prev => ({ ...prev, [`${profile}:${activeStateName}:${index}`]: value }))}
+        />
+      ))}
+    </div>
+  ) : null
 
   return (
-    <div className={className} style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr) 340px', gap: 0, minHeight: 0, height: '100%' }}>
+    <div className={className} style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr) 300px', gap: 0, minHeight: 0, height: '100%' }}>
+
+      {/* ── Left sidebar: profile · states · palette ── */}
       <aside style={{ borderRight: '1px solid var(--border)', background: 'var(--bg-elev)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
+
+        {/* Header */}
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>Screen designer</div>
-          <div style={{ marginTop: 4, fontSize: 17, fontWeight: 700, color: 'var(--ink)' }}>{frameTitle}</div>
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-            Flow defines states. This simulator defines the UI the side sees.
-          </div>
+          <div style={{ marginTop: 3, fontSize: 15, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{frameTitle}</div>
         </div>
 
-        <div style={{ padding: '14px 18px 0' }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 8 }}>Side</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {(Object.entries(PROFILE_LABELS) as Array<[ProfileName, typeof PROFILE_LABELS.sender]>).map(([key, meta]) => {
-              const active = profile === key
-              return (
-                <button
-                  key={key}
-                  onClick={() => onProfileChange(key)}
-                  style={{
-                    textAlign: 'left',
-                    padding: '10px 12px',
-                    borderRadius: 12,
-                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                    background: active ? 'var(--accent-soft)' : 'var(--bg)',
-                    color: 'inherit',
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{meta.label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{meta.hint}</div>
-                </button>
-              )
-            })}
+        {/* States list */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 8 }}>
+            States {states.length > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, color: 'var(--ink-5)', fontSize: 9.5 }}>{states.length}</span>}
           </div>
+          {states.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {states.map(state => {
+                const active = state.name === activeStateName
+                const dot = state.type === 'start' ? 'var(--green)' : state.type === 'final' ? 'var(--violet)' : 'var(--accent)'
+                return (
+                  <button
+                    key={state.name}
+                    onClick={() => onStateChange(state.name)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 9,
+                      border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                      background: active ? 'var(--accent-soft)' : 'transparent',
+                      textAlign: 'left', color: 'inherit', fontFamily: 'inherit', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg)' }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? 'var(--ink)' : 'var(--ink-2)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {prettify(state.name)}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>{state.type}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', padding: '6px 0' }}>No states — open a template first</div>
+          )}
         </div>
 
-        <div style={{ padding: '14px 18px 18px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 8 }}>Palette</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', paddingRight: 2, minHeight: 0, flex: 1 }}>
+        {/* Element palette */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', marginBottom: 8 }}>Elements</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {ELEMENT_PALETTES.map(group => (
               <div key={group.label}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <Icon name={group.icon as any} size={12} />
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>{group.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                  <Icon name={group.icon as any} size={11} />
+                  <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--ink-5)' }}>{group.label}</span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                   {group.types.map(type => (
                     <PaletteItem key={type} type={type} onAdd={() => handleAdd(type)} />
                   ))}
@@ -1095,213 +1260,108 @@ export function WorkflowScreenDesigner({
         </div>
       </aside>
 
-      <main style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--bg)', padding: '16px' }}>
-        {isSender ? (
-          <div style={{ height: '100%', minHeight: 0, borderRadius: 28, border: '1px solid var(--border)', background: 'linear-gradient(180deg, #0f172a 0%, #111827 100%)', padding: 18, boxShadow: '0 24px 100px -48px rgba(0,0,0,0.7)', display: 'grid', gridTemplateRows: 'auto 1fr' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.48)' }}>ESSI web simulator</div>
-                <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color: 'white' }}>{frameTitle}</div>
-                <div style={{ marginTop: 3, fontSize: 12, color: 'rgba(255,255,255,0.56)' }}>{connectionLabel || 'No connection selected'}</div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(59,130,246,0.18)', color: '#bfdbfe', fontSize: 11, fontWeight: 700 }}>ESSI</span>
-                <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.72)', fontSize: 11, fontWeight: 700 }}>{prettify(activeStateName || 'state')}</span>
-              </div>
-            </div>
-            <div style={{ minHeight: 0, display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', gap: 18, paddingTop: 18 }}>
-              <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {states.map((state, index) => (
-                    <button
-                      key={state.name}
-                      onClick={() => onStateChange(state.name)}
-                      style={{
-                        textAlign: 'left',
-                        padding: '12px 14px',
-                        borderRadius: 18,
-                        border: `1px solid ${state.name === activeStateName ? 'rgba(96,165,250,0.55)' : 'rgba(255,255,255,0.08)'}`,
-                        background: state.name === activeStateName ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.03)',
-                        color: 'white',
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: state.type === 'start' ? '#22c55e' : state.type === 'final' ? '#a855f7' : '#3b82f6' }} />
-                        <span style={{ fontSize: 14, fontWeight: 700 }}>{prettify(state.name)}</span>
-                      </div>
-                      <div style={{ marginTop: 4, fontSize: 11.5, color: 'rgba(255,255,255,0.58)' }}>{state.type}{state.section ? ` · ${state.section}` : ''}</div>
-                      <div style={{ marginTop: 2, fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>{index === 0 ? 'Start' : 'State block'}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => {
-                  e.preventDefault()
-                  const raw = e.dataTransfer.getData(DRAG_MIME)
-                  if (!raw) return
-                  try {
-                    handleDrop(JSON.parse(raw) as DragPayload)
-                  } catch {
-                    // ignore
-                  }
-                }}
-                style={{ minHeight: 0, overflowY: 'auto', borderRadius: 30, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', padding: 18 }}
+      {/* ── Center: simulator ── */}
+      <main style={{ minWidth: 0, minHeight: 0, overflow: 'hidden', padding: 14, background: 'var(--bg)' }}>
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+            {/* Device selector bar */}
+            <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, background: 'var(--bg-elev)' }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.07em', flexShrink: 0 }}>Device</span>
+              <select
+                value={deviceIdx}
+                onChange={e => setDeviceIdx(Number(e.target.value))}
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', fontSize: 12, color: 'var(--ink)', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }}
               >
-                <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.44)', fontWeight: 700 }}>Drop blocks here</div>
-                    <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.76)', marginTop: 4 }}>Build how the receiver sees this step.</div>
-                  </div>
-                  <div style={{ padding: '6px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.68)', fontSize: 11, fontWeight: 700 }}>{elements.length} blocks</div>
-                </div>
-                {elements.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {elements.map((element, index) => (
-                      <ScreenBlock
-                        key={`${element.type}-${index}`}
-                        element={element}
-                        index={index}
-                        selected={index === selectedIndex}
-                        onSelect={() => setSelectedIndex(index)}
-                        onDropData={payload => handleDrop(payload, index)}
-                        onMoveUp={index > 0 ? () => moveAt(index, -1) : undefined}
-                        onMoveDown={index < elements.length - 1 ? () => moveAt(index, 1) : undefined}
-                        runtimeValue={runtimeValues[`${profile}:${activeStateName}:${index}`]}
-                        onRuntimeValue={value => setRuntimeValues(prev => ({ ...prev, [`${profile}:${activeStateName}:${index}`]: value }))}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 24, minHeight: 340, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.02)', padding: 24, textAlign: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>Empty state</div>
-                      <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>Drag a block from the palette or click one to add it here.</div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                {(() => {
+                  let idx = 0
+                  return DEVICE_GROUPS.map(g => (
+                    <optgroup key={g.group} label={g.group}>
+                      {g.devices.map(d => {
+                        const i = idx++
+                        return <option key={d.label} value={i}>{d.label}{g.kind !== 'website' ? ` · ${d.width}pt` : ''}</option>
+                      })}
+                    </optgroup>
+                  ))
+                })()}
+              </select>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{device.kind === 'website' ? 'Web receiver' : device.kind === 'tablet' ? 'Tablet · Wallet' : 'Wallet receiver'}</span>
             </div>
-          </div>
-        ) : (
-          <div style={{ height: '100%', minHeight: 0, borderRadius: 32, border: '1px solid var(--border)', background: 'linear-gradient(180deg, #0f172a 0%, #111827 100%)', boxShadow: '0 24px 100px -48px rgba(0,0,0,0.72)', padding: 20, display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', gap: 18 }}>
-            <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {states.map((state, index) => (
-                  <button
-                    key={state.name}
-                    onClick={() => onStateChange(state.name)}
-                    style={{
-                      textAlign: 'left',
-                      padding: '12px 14px',
-                      borderRadius: 18,
-                      border: `1px solid ${state.name === activeStateName ? 'rgba(96,165,250,0.55)' : 'rgba(255,255,255,0.08)'}`,
-                      background: state.name === activeStateName ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.03)',
-                      color: 'white',
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                    }}
+
+            {/* Frame canvas */}
+            {device.kind === 'website' ? (
+              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', padding: '20px 24px' }}>
+                <WebsiteFrame frameTitle={frameTitle} stateName={activeStateName}>
+                  <div
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); const raw = e.dataTransfer.getData(DRAG_MIME); if (!raw) return; try { handleDrop(JSON.parse(raw) as DragPayload) } catch {} }}
+                    style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: state.type === 'start' ? '#22c55e' : state.type === 'final' ? '#a855f7' : '#3b82f6' }} />
-                      <span style={{ fontSize: 14, fontWeight: 700 }}>{prettify(state.name)}</span>
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 11.5, color: 'rgba(255,255,255,0.58)' }}>{state.type}{state.section ? ` · ${state.section}` : ''}</div>
-                    <div style={{ marginTop: 2, fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>{index === 0 ? 'Start' : 'State block'}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ minHeight: 0, overflow: 'hidden', display: 'flex', justifyContent: 'center' }}>
-              <div style={{ width: 'min(430px, 100%)', height: '100%', maxHeight: '100%', borderRadius: 36, background: '#020617', padding: 10, boxShadow: '0 30px 110px -60px rgba(0,0,0,0.75)', overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)' }}>
-                <div style={{ borderRadius: 28, background: '#f8fafc', overflow: 'hidden', minHeight: 0, height: '100%', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)' }}>
-                  <div style={{ padding: '14px 16px 10px', background: '#fff', borderBottom: '1px solid rgba(15,23,42,0.08)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-4)' }}>
-                      <span>9:41</span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <Icon name="phone" size={13} />
-                        Wallet
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                      <div>
-                        <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)' }}>Wallet simulator</div>
-                        <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{prettify(activeStateName || 'State')}</div>
+                    {elements.length > 0 ? blockList(p => handleDrop(p)) : (
+                      <div style={{ minHeight: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, border: '2px dashed #e2e8f0' }}>
+                        <Icon name="plus" size={18} style={{ color: '#94a3b8' }} />
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Empty screen</div>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>Drag blocks from the palette</div>
                       </div>
-                      <div style={{ padding: '5px 10px', borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent-ink)', fontSize: 11, fontWeight: 700 }}>{PROFILE_LABELS.receiver.label}</div>
-                    </div>
+                    )}
+                  </div>
+                </WebsiteFrame>
+              </div>
+            ) : (
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '28px 24px' }}>
+                <PhoneFrame model={device} width={device.width}>
+                  {/* App header */}
+                  <div style={{ padding: '4px 18px 14px', borderBottom: '1px solid rgba(15,23,42,0.07)', flexShrink: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>{frameTitle}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', marginTop: 3, letterSpacing: '-0.02em' }}>{prettify(activeStateName || 'State')}</div>
                   </div>
 
+                  {/* Block canvas */}
                   <div
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => {
                       e.preventDefault()
                       const raw = e.dataTransfer.getData(DRAG_MIME)
                       if (!raw) return
-                      try {
-                        handleDrop(JSON.parse(raw) as DragPayload)
-                      } catch {
-                        // ignore
-                      }
+                      try { handleDrop(JSON.parse(raw) as DragPayload) } catch {}
                     }}
-                    style={{ minHeight: 0, overflowY: 'auto', padding: 16, background: 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)' }}
+                    style={{ padding: '14px 14px 28px', background: 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)' }}
                   >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 16 }}>
-                      {elements.length > 0 ? (
-                        elements.map((element, index) => (
-                          <ScreenBlock
-                            key={`${element.type}-${index}`}
-                            element={element}
-                            index={index}
-                            selected={index === selectedIndex}
-                            onSelect={() => setSelectedIndex(index)}
-                            onDropData={payload => handleDrop(payload, index)}
-                            onMoveUp={index > 0 ? () => moveAt(index, -1) : undefined}
-                            onMoveDown={index < elements.length - 1 ? () => moveAt(index, 1) : undefined}
-                            runtimeValue={runtimeValues[`${profile}:${activeStateName}:${index}`]}
-                            onRuntimeValue={value => setRuntimeValues(prev => ({ ...prev, [`${profile}:${activeStateName}:${index}`]: value }))}
-                          />
-                        ))
-                      ) : (
-                        <div style={{ border: '1px dashed var(--border)', borderRadius: 24, minHeight: 360, display: 'grid', placeItems: 'center', background: 'rgba(255,255,255,0.65)', color: 'var(--ink-4)', padding: 24, textAlign: 'center' }}>
-                          <div>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-2)' }}>Empty wallet screen</div>
-                            <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>Drag inputs, warnings, buttons, and charts into this simulator.</div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    {elements.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {blockList(p => handleDrop(p))}
+                      </div>
+                    ) : (
+                      <div style={{ minHeight: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 20, border: '2px dashed rgba(15,23,42,0.1)', background: 'rgba(255,255,255,0.5)' }}>
+                        <Icon name="plus" size={18} style={{ color: '#94a3b8' }} />
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: '#475569' }}>Empty screen</div>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>Drag blocks from the palette</div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                </PhoneFrame>
               </div>
-            </div>
+            )}
           </div>
-        )}
       </main>
 
+      {/* ── Right: inspector ── */}
       <aside style={{ borderLeft: '1px solid var(--border)', background: 'var(--bg-elev)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>Inspector</div>
-          <div style={{ marginTop: 4, fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{selectedElement ? UI_ELEMENT_LABELS[selectedElement.type] : 'No block selected'}</div>
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-            {profile === 'sender' ? 'ESSI web layout' : 'Wallet mobile layout'} · {connectionLabel || 'No connection selected'}
+          <div style={{ marginTop: 3, fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
+            {selectedElement ? UI_ELEMENT_LABELS[selectedElement.type] : 'No block selected'}
+          </div>
+          <div style={{ marginTop: 3, fontSize: 11.5, color: 'var(--ink-4)' }}>
+            Wallet · {prettify(activeStateName || 'state')}
+            {connectionLabel ? ` · ${connectionLabel}` : ''}
           </div>
         </div>
 
-        <div style={{ padding: '14px 18px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
-          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: '1fr 1fr', marginBottom: 14 }}>
-            <div style={{ padding: '12px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg)' }}>
-              <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>State</div>
-              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{prettify(activeStateName || 'State')}</div>
-            </div>
-            <div style={{ padding: '12px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--bg)' }}>
-              <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>Blocks</div>
-              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{elements.length}</div>
-            </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px' }}>
+          <div style={{ padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg)', marginBottom: 14 }}>
+            <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-4)', fontWeight: 600 }}>Blocks</div>
+            <div style={{ marginTop: 3, fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{elements.length}</div>
           </div>
 
           {selectedElement ? (
@@ -1315,14 +1375,10 @@ export function WorkflowScreenDesigner({
               onMoveDown={selectedIndex != null && selectedIndex < elements.length - 1 ? () => moveSelected(1) : undefined}
             />
           ) : (
-            <div style={{ border: '1px dashed var(--border)', borderRadius: 16, padding: 16, color: 'var(--ink-4)', fontSize: 12.5, lineHeight: 1.6 }}>
-              Select a block in the simulator to edit it, or drag a new block from the palette.
+            <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '18px 14px', color: 'var(--ink-4)', fontSize: 12.5, lineHeight: 1.6, textAlign: 'center' }}>
+              Select a block in the simulator to edit its properties.
             </div>
           )}
-
-          <div style={{ marginTop: 16, padding: 14, borderRadius: 16, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--ink-3)', fontSize: 12.5, lineHeight: 1.7 }}>
-            Changes are written back to <span style={{ fontFamily: 'var(--font-mono)' }}>display_hints.profiles.{profile}.states.{activeStateName}</span> and stay in sync with the JSON tab.
-          </div>
         </div>
       </aside>
     </div>
