@@ -47,16 +47,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ajna-inc/calendar@npm:0.1.0":
-  version: 0.1.0
-  resolution: "@ajna-inc/calendar@npm:0.1.0"
+"@ajna-inc/calendar@npm:0.1.1":
+  version: 0.1.1
+  resolution: "@ajna-inc/calendar@npm:0.1.1"
   dependencies:
     "@credo-ts/core": "npm:0.6.1"
     "@credo-ts/didcomm": "npm:0.6.1"
     class-transformer: "npm:0.5.1"
     class-validator: "npm:^0.14.1"
     rxjs: "npm:^7.8.2"
-  checksum: 10/d142d94e513a334817b47f2adba83174a29b23da95a36e7cd9c4de985e698d6dfe0e7752371078abe68a7361df16e1057d73540e6b55cad37e351e51806d1fe3
+  checksum: 10/6d6df2f42ce33230bb5979a7c92d80bff5fb6c39b442c4b465ea0823f0b9a357ae9d709fc7024507daa9cddddf9569bf6e5343f1f304f359d723766c863a352d
   languageName: node
   linkType: hard
 
@@ -122,15 +122,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ajna-inc/poe@npm:0.6.1":
-  version: 0.6.1
-  resolution: "@ajna-inc/poe@npm:0.6.1"
+"@ajna-inc/poe@npm:0.6.2":
+  version: 0.6.2
+  resolution: "@ajna-inc/poe@npm:0.6.2"
   dependencies:
     "@credo-ts/core": "npm:0.6.1"
     "@credo-ts/didcomm": "npm:0.6.1"
     class-transformer: "npm:0.5.1"
     class-validator: "npm:^0.14.1"
-  checksum: 10/1389aa76fc95163a28e9d83f0662076d2e419c10d0864d3d5a6d7f8cbcd441ca9cf48d849715893d6bc99659bcf2aa11f96a715846c8d86c48965793d048522b
+  checksum: 10/2938237e0f73fe58f6de2a437d71b3ec816464ca809073a20aba6d18aef8570b58cdc3e475130f5cd9d8d637a17191da54d19fa263cb11b209498546d8694b9a
   languageName: node
   linkType: hard
 
@@ -149,9 +149,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ajna-inc/signing@npm:0.6.1":
-  version: 0.6.1
-  resolution: "@ajna-inc/signing@npm:0.6.1"
+"@ajna-inc/signing@npm:0.6.2":
+  version: 0.6.2
+  resolution: "@ajna-inc/signing@npm:0.6.2"
   dependencies:
     "@credo-ts/core": "npm:0.6.1"
     "@credo-ts/didcomm": "npm:0.6.1"
@@ -162,7 +162,7 @@ __metadata:
     class-validator: "npm:^0.14.1"
     node-forge: "npm:^1.3.1"
     pdf-lib: "npm:^1.17.1"
-  checksum: 10/b116a635e25d62652f5b4f755df20e0ec7094b87976c3f28b94d697054cb453b9ccc76b7671f8b508c6962ebf50034a256290fc62321a195897cb27496737457
+  checksum: 10/e56419baf733efa3cc3861def23a2b5f53faf70962606cffb34ae88aebf739565be154cf0f4cdc3cb4dacc5610f0389b8bd10b6093cf93d093806e86dcb5269b
   languageName: node
   linkType: hard
 
@@ -196,15 +196,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ajna-inc/webrtc@npm:0.6.1":
-  version: 0.6.1
-  resolution: "@ajna-inc/webrtc@npm:0.6.1"
+"@ajna-inc/webrtc@npm:0.6.2":
+  version: 0.6.2
+  resolution: "@ajna-inc/webrtc@npm:0.6.2"
   dependencies:
     "@credo-ts/core": "npm:0.6.1"
     "@credo-ts/didcomm": "npm:0.6.1"
     class-transformer: "npm:0.5.1"
     class-validator: "npm:^0.14.1"
-  checksum: 10/aea1614e465140112ccf15af1bd6b7b99628add775df0a8fe790558c7b41d450c5de99cfbe3dd7bc566bc826f26983b58e1e1cd7bc405b149a40d114c19eaf92
+  checksum: 10/a022a95071cbc868d512448701fc77cd40f0964bd2cec334de7c1dd562a1290eae0c4710999d39eec498fbf649f27785f4c7bd661971e2a8489d0e6be97d0733
   languageName: node
   linkType: hard
 
@@ -270,9 +270,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@ajna-inc/workflow@npm:0.6.82":
-  version: 0.6.82
-  resolution: "@ajna-inc/workflow@npm:0.6.82"
+"@ajna-inc/workflow@npm:0.6.83":
+  version: 0.6.83
+  resolution: "@ajna-inc/workflow@npm:0.6.83"
   dependencies:
     "@credo-ts/core": "npm:0.6.1"
     "@credo-ts/didcomm": "npm:0.6.1"
@@ -283,7 +283,7 @@ __metadata:
     jmespath: "npm:^0.16.0"
     rxjs: "npm:^7.8.2"
     semver: "npm:^7.6.3"
-  checksum: 10/7a8f54bbeb400431dbc923b264b485060e582c67da2945907edeaffe84d885b32ffb19aae8d25287508fc91bb2d213a918235b49d9fdff021c4f1028d4d9dbaf
+  checksum: 10/fbc2e7e420badee5ce7a97cfe01ed3200c5197b104f16de420c68d4a386bac28b1d3fad4d1077468b2f299cc1cda746c663e495319475a7e34d20019e9fb442a
   languageName: node
   linkType: hard
 
@@ -5326,15 +5326,15 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "apostille-backend@workspace:backend"
   dependencies:
-    "@ajna-inc/calendar": "npm:0.1.0"
+    "@ajna-inc/calendar": "npm:0.1.1"
     "@ajna-inc/group-messaging": "npm:0.1.2"
     "@ajna-inc/openbadges": "npm:0.6.3"
     "@ajna-inc/payments": "npm:0.6.1"
-    "@ajna-inc/poe": "npm:0.6.1"
-    "@ajna-inc/signing": "npm:0.6.1"
+    "@ajna-inc/poe": "npm:0.6.2"
+    "@ajna-inc/signing": "npm:0.6.2"
     "@ajna-inc/vaults": "npm:^0.7.3"
-    "@ajna-inc/webrtc": "npm:0.6.1"
-    "@ajna-inc/workflow": "npm:0.6.82"
+    "@ajna-inc/webrtc": "npm:0.6.2"
+    "@ajna-inc/workflow": "npm:0.6.83"
     "@ajna-inc/workflow-backend-express": "workspace:*"
     "@aws-sdk/client-s3": "npm:^3.966.0"
     "@aws-sdk/s3-request-presigner": "npm:^3.966.0"

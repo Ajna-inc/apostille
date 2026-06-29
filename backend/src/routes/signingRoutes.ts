@@ -19,7 +19,7 @@ function computeSha256Digest(data: string): string {
 router.post('/request', async (req: Request, res: Response) => {
   try {
     const { tenantId } = (req as any).user;
-    const { connectionId, document, label } = req.body;
+    const { connectionId, document, label, threshold, signers, ui } = req.body;
 
     if (!connectionId) {
       return res.status(400).json({ error: 'connectionId is required' });
@@ -62,8 +62,8 @@ router.post('/request', async (req: Request, res: Response) => {
       suite: {
         suite: 'jws-ed25519@1',
       },
-      // Don't pass session - let the module generate sessionId automatically
-      // If we need a label, we'll add it in a future update
+      ...(threshold && threshold > 1 ? { threshold, signers: signers || [] } : {}),
+      ...(ui ? { ui } : {}),
     });
 
     res.json({

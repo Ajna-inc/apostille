@@ -305,14 +305,14 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
     try {
       const tenantId = (req as any).user?.tenantId
       const { instanceId } = req.params
-      const { event, idempotency_key, input, connection_id } = req.body || {}
+      const { event, idempotency_key, input, connection_id, artifacts, context: advanceContext } = req.body || {}
       if (!tenantId) return badRequest(res, 'Tenant ID missing from request context')
       if (!instanceId || typeof instanceId !== 'string') return badRequest(res, 'instance_id is required')
       if (!event || typeof event !== 'string') return badRequest(res, 'event is required')
 
       const agent = await getAgent({ tenantId })
       try {
-        const rec = await agent.modules.workflow.advance({ instance_id: instanceId, event, idempotency_key, input })
+        const rec = await agent.modules.workflow.advance({ instance_id: instanceId, event, idempotency_key, input, artifacts, context: advanceContext })
         return res.status(200).json({
           success: true,
           instance: {
@@ -409,7 +409,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
     try {
       const tenantId = (req as any).user?.tenantId
       const { instanceId } = req.params
-      const { event, idempotency_key, input } = req.body || {}
+      const { event, idempotency_key, input, artifacts, context: advanceContext } = req.body || {}
       if (!tenantId) return badRequest(res, 'Tenant ID missing from request context')
       if (!instanceId || typeof instanceId !== 'string') return badRequest(res, 'instance_id is required')
       if (!event || typeof event !== 'string') return badRequest(res, 'event is required')
@@ -417,7 +417,7 @@ export function registerWorkflowRoutes(router: Router, getAgent: GetAgent) {
       const agent = await getAgent({ tenantId })
       const { WorkflowService } = await importWorkflow('@ajna-inc/workflow')
       const service = agent.dependencyManager.resolve(WorkflowService)
-      const record = await service.advance(agent.context, { instance_id: instanceId, event, idempotency_key, input })
+      const record = await service.advance(agent.context, { instance_id: instanceId, event, idempotency_key, input, artifacts, context: advanceContext })
       return res.status(200).json({
         success: true,
         instance: {
